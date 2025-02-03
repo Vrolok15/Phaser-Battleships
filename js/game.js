@@ -35,6 +35,7 @@ const VERTICAL_SPACING = 50;
 const SHIP_Y_OFFSET = 32;
 const TEXT_PADDING = 10;
 const RECT_PADDING = 5;
+let enemyPlacedShips = []; // Array to track enemy ships' positions
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -765,11 +766,37 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
         })
         .forEach(child => child.destroy());
 
-    // Recreate elements only for used ships
+    // Calculate enemy grid position (same as in create function)
+    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
+    const enemyGridX = gridStartX + totalGridWidth + GRID_SPACING;
+
+    // Duplicate ships to enemy grid
+    enemyPlacedShips = placedShips.map(ship => {
+        // Create enemy ship sprite with corrected Y position
+        const enemyShip = scene.add.sprite(
+            enemyGridX + (ship.tiles[0].x * GRID_SIZE) + (ship.rotation % 180 === 0 ? (ship.size * GRID_SIZE) / 2 : GRID_SIZE/2),
+            gridStartY + (ship.tiles[0].y * GRID_SIZE) + (ship.rotation % 180 === 0 ? GRID_SIZE/2 : (ship.size * GRID_SIZE) / 2),
+            `ship-${ship.size}`
+        );
+        enemyShip.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
+        enemyShip.setAngle(ship.rotation);
+
+        // Return new enemy ship object
+        return {
+            sprite: enemyShip,
+            tiles: ship.tiles,
+            size: ship.size,
+            rotation: ship.rotation
+        };
+    });
+
+    // Recreate elements only for used ships under player grid
     ships.forEach((ship, index) => {
         if (ship.used > 0) {
             const shipY = startY + SHIP_Y_OFFSET + (index * VERTICAL_SPACING);
             recreateShipUI(scene, ship, shipY, gridStartX);
+            // Create ship UI under enemy grid
+            recreateShipUI(scene, ship, shipY, enemyGridX);
         }
     });
 
@@ -813,6 +840,10 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     placedShips.forEach(ship => ship.sprite.destroy());
     placedShips = [];
     
+    // Clear all enemy ships
+    enemyPlacedShips.forEach(ship => ship.sprite.destroy());
+    enemyPlacedShips = [];
+    
     // Reset ship inventory
     ships.forEach(ship => {
         ship.amount = ship.amount + ship.used;
@@ -827,9 +858,15 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     selectedShip = null;
     currentRotation = 0;
 
-    // Remove all existing elements
+    // Remove all existing elements including graphics
     scene.children.list
-        .filter(child => child.y >= startY)
+        .filter(child => {
+            // Check if element is in ship selection area or is a graphics object
+            const isInShipArea = child.y >= startY;
+            const isGraphics = child.type === 'Graphics';
+            // Include all graphics objects and elements in ship area
+            return isInShipArea || isGraphics;
+        })
         .forEach(child => child.destroy());
 
     // Remove all existing event listeners for shipPlaced
