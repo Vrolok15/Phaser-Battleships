@@ -68,9 +68,9 @@ function create() {
     createGrid(this, startX1, startY, 'Player Grid', false);
     createGrid(this, startX2, startY, 'Enemy Grid', true);
 
-    // Add ship selection area below grids
-    const shipY = startY + (GRID_DIMENSION * GRID_SIZE) + 32; // 40px padding below grids
-    createShipSelection(this, config.width / 3, shipY);
+    // Add ship selection area below player grid
+    const shipY = startY + (GRID_DIMENSION * GRID_SIZE) + 32;
+    createShipSelection(this, startX1, startY, shipY);
 
     // Add pointer move listener for the scene
     this.input.on('pointermove', function (pointer) {
@@ -163,13 +163,14 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
     }
 }
 
-function createShipSelection(scene, centerX, startY) {
-    // Add "Ships:" label
-    const labelX = centerX - 300;
-    scene.add.text(labelX, startY, 'Ships:', {
+function createShipSelection(scene, gridStartX, gridStartY, startY) {
+    const gridWidth = GRID_SIZE * GRID_DIMENSION;
+    
+    // Center the "Player Ships:" label under the grid
+    const labelText = scene.add.text(gridStartX + gridWidth/2, startY, 'Player Ships:', {
         fontSize: '20px',
         fill: '#fff'
-    });
+    }).setOrigin(0.5, 0);
 
     // Ship configurations
     ships = [
@@ -180,26 +181,42 @@ function createShipSelection(scene, centerX, startY) {
         { size: 5, name: 'Carrier', amount: 1, used: 0 }
     ];
 
-    // Display ships vertically aligned to the left
-    const shipStartX = labelX;
     const verticalSpacing = 50;
     const shipYOffset = 32;
+    const textPadding = 10;
 
     ships.forEach((ship, index) => {
         const shipY = startY + shipYOffset + (index * verticalSpacing);
         
-        // Add ship sprite
+        // Add ship sprite at the left side of the rectangle
         const sprite = scene.add.sprite(
-            shipStartX + (ship.size * GRID_SIZE) / 2,
+            gridStartX + (ship.size * GRID_SIZE) / 2,
             shipY + GRID_SIZE/2,
             `ship-${ship.size}`
         );
         
         sprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
 
-        // Add ship name and amount
-        scene.add.text(
-            shipStartX + (ship.size * GRID_SIZE) + 10,
+        // Add grid overlay on ship
+        const gridOverlay = scene.add.graphics();
+        gridOverlay.lineStyle(1, 0xffffff, 0.3);
+
+        // Draw vertical grid lines
+        for (let i = 0; i <= ship.size; i++) {
+            gridOverlay.moveTo(gridStartX + (i * GRID_SIZE), shipY);
+            gridOverlay.lineTo(gridStartX + (i * GRID_SIZE), shipY + GRID_SIZE);
+        }
+
+        // Draw horizontal grid lines
+        for (let i = 0; i <= 1; i++) {
+            gridOverlay.moveTo(gridStartX, shipY + (i * GRID_SIZE));
+            gridOverlay.lineTo(gridStartX + (ship.size * GRID_SIZE), shipY + (i * GRID_SIZE));
+        }
+        gridOverlay.strokePath();
+
+        // Add ship name and amount right after the ship sprite
+        const nameText = scene.add.text(
+            gridStartX + (ship.size * GRID_SIZE) + textPadding,
             shipY + GRID_SIZE/2,
             ship.name + ' (x' + ship.amount + ')',
             {
@@ -208,43 +225,70 @@ function createShipSelection(scene, centerX, startY) {
             }
         ).setOrigin(0, 0.5);
 
-        // Make ship interactive
-        sprite.setInteractive();
+        // Create interactive rectangle zone
+        const rectPadding = 5;
+        const hitZone = scene.add.rectangle(
+            gridStartX + gridWidth/2,
+            shipY + GRID_SIZE/2,
+            gridWidth,
+            GRID_SIZE + (rectPadding * 2)
+        );
+        hitZone.setInteractive();
+
+        // Add rectangle graphics for outline and hover effect
+        const shipRect = scene.add.graphics();
         
-        // Add hover effect
-        sprite.on('pointerover', function() {
+        function drawRect(color = 0xffffff, alpha = 1) {
+            shipRect.clear();
+            shipRect.lineStyle(1, color, alpha);
+            shipRect.strokeRect(
+                gridStartX,
+                shipY - rectPadding,
+                gridWidth,
+                GRID_SIZE + (rectPadding * 2)
+            );
+        }
+
+        // Draw initial rectangle
+        drawRect();
+
+        // Add hover effects to the hit zone
+        hitZone.on('pointerover', function() {
             if (ship.amount > 0) {
-                this.setTint(0x66ff66);
-                // Only hide following sprite if hovering over a different ship
+                drawRect(0x66ff66); // Green highlight
+                sprite.setTint(0x66ff66); // Highlight ship sprite
+                nameText.setTint(0x66ff66); // Highlight text
+                
+                // Hide following sprite when hovering over a different ship
                 if (followingSprite && (!selectedShip || selectedShip.index !== index)) {
                     followingSprite.setVisible(false);
                 }
             }
         });
         
-        sprite.on('pointerout', function() {
+        hitZone.on('pointerout', function() {
             if (ship.amount > 0) {
-                this.clearTint();
-                // Show following sprite when leaving any ship
+                drawRect(); // Reset to white
+                sprite.clearTint(); // Reset ship sprite
+                nameText.clearTint(); // Reset text
+                
+                // Show following sprite when leaving
                 if (followingSprite) {
                     followingSprite.setVisible(true);
                 }
             }
         });
 
-        // Modify click handler to reset rotation when selecting new ship
-        sprite.on('pointerdown', function(pointer) {
+        // Move click handler to hit zone
+        hitZone.on('pointerdown', function(pointer) {
             if (pointer.leftButtonDown()) {
                 if (ship.amount > 0) {
-                    // Destroy previous following sprite if exists
                     if (followingSprite) {
                         followingSprite.destroy();
                     }
                     
-                    // Reset rotation when selecting new ship
                     currentRotation = 0;
                     
-                    // Create new following sprite
                     followingSprite = scene.add.sprite(pointer.x, pointer.y, `ship-${ship.size}`);
                     followingSprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
                     followingSprite.setOrigin(0.5);
@@ -259,9 +303,11 @@ function createShipSelection(scene, centerX, startY) {
             }
         });
 
-        // If amount is 0, make the ship appear disabled
+        // If amount is 0, make everything appear disabled
         if (ship.amount <= 0) {
+            drawRect(0x666666, 0.5);
             sprite.setTint(0x666666);
+            nameText.setTint(0x666666);
         }
     });
 }
