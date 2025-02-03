@@ -18,6 +18,12 @@ const config = {
 
 const game = new Phaser.Game(config);
 
+// Add global variables for tracking selected ship
+let selectedShip = null;
+let followingSprite = null;
+let ships = null; // Will store reference to ships array
+let currentRotation = 0; // Track current rotation in degrees
+
 const GRID_SIZE = 32; // Changed from 40 to 32
 const GRID_DIMENSION = 10; // 10x10 grid
 const GRID_SPACING = 40; // Reduced spacing between grids for better fit
@@ -65,6 +71,35 @@ function create() {
     // Add ship selection area below grids
     const shipY = startY + (GRID_DIMENSION * GRID_SIZE) + 32; // 40px padding below grids
     createShipSelection(this, config.width / 3, shipY);
+
+    // Add pointer move listener for the scene
+    this.input.on('pointermove', function (pointer) {
+        if (followingSprite) {
+            followingSprite.x = pointer.x;
+            followingSprite.y = pointer.y;
+        }
+    });
+
+    // Change to right click handler for canceling placement
+    this.input.on('pointerdown', function (pointer) {
+        if (pointer.rightButtonDown()) {
+            if (followingSprite) {
+                followingSprite.destroy();
+                followingSprite = null;
+                selectedShip = null;
+            }
+        }
+    });
+
+    // Add mouse wheel handler for rotation
+    this.input.on('wheel', function(pointer, gameObjects, deltaX, deltaY, deltaZ) {
+        if (followingSprite) {
+            // Rotate 90 degrees for each wheel movement
+            currentRotation = (currentRotation + (deltaY > 0 ? 90 : -90)) % 360;
+            if (currentRotation < 0) currentRotation += 360;
+            followingSprite.setAngle(currentRotation);
+        }
+    });
 }
 
 function createGrid(scene, startX, startY, title, isEnemy = false) {
@@ -137,14 +172,13 @@ function createShipSelection(scene, centerX, startY) {
     });
 
     // Ship configurations
-    const ships = [
+    ships = [
         { size: 1, name: 'Patrol Boat', amount: 5, used: 0 },
         { size: 2, name: 'Submarine', amount: 4, used: 0 },
         { size: 3, name: 'Cruiser', amount: 3, used: 0 },
         { size: 4, name: 'Battleship', amount: 2, used: 0 },
         { size: 5, name: 'Carrier', amount: 1, used: 0 }
     ];
-
 
     // Display ships vertically aligned to the left
     const shipStartX = labelX;
@@ -161,13 +195,12 @@ function createShipSelection(scene, centerX, startY) {
             `ship-${ship.size}`
         );
         
-        // Scale ship to match grid size
         sprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
 
-        // Add ship name to the right of the ship
+        // Add ship name and amount
         scene.add.text(
             shipStartX + (ship.size * GRID_SIZE) + 10,
-            shipY + GRID_SIZE/2, // Align with center of ship
+            shipY + GRID_SIZE/2,
             ship.name + ' (x' + ship.amount + ')',
             {
                 fontSize: '16px',
@@ -180,15 +213,59 @@ function createShipSelection(scene, centerX, startY) {
         
         // Add hover effect
         sprite.on('pointerover', function() {
-            this.setTint(0x66ff66);
+            if (ship.amount > 0) {
+                this.setTint(0x66ff66);
+                // Only hide following sprite if hovering over a different ship
+                if (followingSprite && (!selectedShip || selectedShip.index !== index)) {
+                    followingSprite.setVisible(false);
+                }
+            }
         });
         
         sprite.on('pointerout', function() {
-            this.clearTint();
+            if (ship.amount > 0) {
+                this.clearTint();
+                // Show following sprite when leaving any ship
+                if (followingSprite) {
+                    followingSprite.setVisible(true);
+                }
+            }
         });
+
+        // Modify click handler to reset rotation when selecting new ship
+        sprite.on('pointerdown', function(pointer) {
+            if (pointer.leftButtonDown()) {
+                if (ship.amount > 0) {
+                    // Destroy previous following sprite if exists
+                    if (followingSprite) {
+                        followingSprite.destroy();
+                    }
+                    
+                    // Reset rotation when selecting new ship
+                    currentRotation = 0;
+                    
+                    // Create new following sprite
+                    followingSprite = scene.add.sprite(pointer.x, pointer.y, `ship-${ship.size}`);
+                    followingSprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
+                    followingSprite.setOrigin(0.5);
+                    
+                    selectedShip = {
+                        size: ship.size,
+                        name: ship.name,
+                        index: index,
+                        rotation: currentRotation
+                    };
+                }
+            }
+        });
+
+        // If amount is 0, make the ship appear disabled
+        if (ship.amount <= 0) {
+            sprite.setTint(0x666666);
+        }
     });
 }
 
 function update() {
-    // Game loop updates here
+    // No need for additional update logic as we're using event handlers
 } 
