@@ -150,6 +150,10 @@ function preload() {
     for (let i = 1; i <= 5; i++) {
         this.load.image(`ship-${i}`, `assets/ship-${i}.png`);
     }
+
+    // Add new function to handle shots
+    this.load.image('missed-dark', 'assets/missed-dark.png');
+    this.load.image('explosion', 'assets/explosion.png');
 }
 
 function create() {
@@ -467,6 +471,23 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                             }
                         }
                     }
+                } else if (gameStarted && pointer.leftButtonDown()) {
+                    // Check if this tile has been shot before
+                    const hasBeenShot = scene.children.list.some(child => 
+                        child.type === 'Sprite' && 
+                        (child.texture.key === 'missed-dark' || child.texture.key === 'explosion') &&
+                        child.x === startX + (x * GRID_SIZE) + GRID_SIZE/2 &&
+                        child.y === startY + (y * GRID_SIZE) + GRID_SIZE/2
+                    );
+
+                    if (!hasBeenShot) {
+                        // Check if there's a ship at these coordinates
+                        const hitShip = enemyPlacedShips.find(ship => 
+                            ship.tiles.some(tile => tile.x === x && tile.y === y)
+                        );
+
+                        handleShot(scene, x, y, startX, startY, hitShip !== undefined);
+                    }
                 }
             });
         }
@@ -767,51 +788,11 @@ function handleClearClick(scene, startY, gridStartX, gridStartY, startButton) {
     startButton.disable();
 }
 
-// Add new function to draw both grids
+// Update drawBothGrids function to remove tile creation
 function drawBothGrids(scene, startX1, startX2, startY) {
     // Create graphics object for grid lines
     drawGrid(scene, startX1, startY);
     drawGrid(scene, startX2, startY);
-
-    // Create container for tile highlights
-    const highlightGraphics = scene.add.graphics();
-
-    // Add interactive zones for both grids
-    [startX1, startX2].forEach((startX, gridIndex) => {
-        const isEnemy = gridIndex === 1;
-
-        // Add interactive tiles
-        for (let x = 0; x < GRID_DIMENSION; x++) {
-            for (let y = 0; y < GRID_DIMENSION; y++) {
-                const tileZone = scene.add.rectangle(
-                    startX + (x * GRID_SIZE) + GRID_SIZE/2,
-                    startY + (y * GRID_SIZE) + GRID_SIZE/2,
-                    GRID_SIZE,
-                    GRID_SIZE
-                );
-                tileZone.setInteractive();
-
-                // Add hover effect
-                tileZone.on('pointerover', () => {
-                    highlightGraphics.clear();
-                    if (gameStarted && isEnemy) {
-                        // In game mode, show gold highlight on enemy grid
-                        highlightGraphics.fillStyle(0xffd700, 0.3);
-                        highlightGraphics.fillRect(
-                            startX + (x * GRID_SIZE),
-                            startY + (y * GRID_SIZE),
-                            GRID_SIZE,
-                            GRID_SIZE
-                        );
-                    }
-                });
-
-                tileZone.on('pointerout', () => {
-                    highlightGraphics.clear();
-                });
-            }
-        }
-    });
 
     // Add titles above grids
     scene.add.text(startX1 + (GRID_SIZE * GRID_DIMENSION) / 2, startY - 45, 'Player Grid', {
@@ -849,45 +830,59 @@ function drawBothGrids(scene, startX1, startX2, startY) {
 }
 
 function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, clearButton, startButton) {
-    // First remove all graphics
+    // First remove only grid lines and highlights, preserving ships and ship UI
     scene.children.list
-        .filter(child => child.type === 'Graphics')
+        .filter(child => {
+            // Keep all placed ships
+            if (child.type === 'Sprite' && placedShips.some(ship => ship.sprite === child)) {
+                return false;
+            }
+            
+            // Keep ship rectangles in selection area
+            if (child.type === 'Graphics' && child.y >= startY && child.y <= buttonY) {
+                return false;
+            }
+
+            // Remove everything else in ship selection area
+            if (child.y >= startY && child.y <= buttonY) {
+                return true;
+            }
+
+            // Remove grid lines and highlights
+            if (child.type === 'Graphics' && child.y < startY) {
+                return true;
+            }
+
+            return false;
+        })
         .forEach(child => child.destroy());
 
     // Calculate grid positions once
     const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
     const enemyGridX = gridStartX + totalGridWidth + GRID_SPACING;
 
-    // Redraw grids
+    // Redraw grids and recreate interactive tiles
     drawBothGrids(scene, gridStartX, enemyGridX, gridStartY);
+    createGrid(scene, gridStartX, gridStartY, 'Player Grid', false);
+    createGrid(scene, enemyGridX, gridStartY, 'Enemy Grid', true);
 
-    // Rest of the start logic...
+    // Set game state to started
     gameStarted = true;
 
-    // Remove ship selection elements
-    scene.children.list
-        .filter(child => child.y >= startY && child.y <= buttonY)
-        .forEach(child => child.destroy());
+    // Store old ships and clear arrays
+    const oldPlayerShips = [...placedShips];
+    placedShips = [];
 
-    // Duplicate ships to enemy grid
-    enemyPlacedShips = placedShips.map(ship => {
-        // Create enemy ship sprite with corrected Y position
-        const enemyShip = scene.add.sprite(
-            enemyGridX + (ship.tiles[0].x * GRID_SIZE) + (ship.rotation % 180 === 0 ? (ship.size * GRID_SIZE) / 2 : GRID_SIZE/2),
-            gridStartY + (ship.tiles[0].y * GRID_SIZE) + (ship.rotation % 180 === 0 ? GRID_SIZE/2 : (ship.size * GRID_SIZE) / 2),
-            `ship-${ship.size}`
-        );
-        enemyShip.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
-        enemyShip.setAngle(ship.rotation);
-
-        // Return new enemy ship object
-        return {
-            sprite: enemyShip,
-            tiles: ship.tiles,
-            size: ship.size,
-            rotation: ship.rotation
-        };
+    // Redraw player ships
+    oldPlayerShips.forEach(ship => {
+        const newShip = placeShipOnGrid(scene, ship, gridStartX, gridStartY);
+        placedShips.push(newShip);
     });
+
+    // Create enemy ships
+    enemyPlacedShips = placedShips.map(ship => 
+        placeShipOnGrid(scene, ship, enemyGridX, gridStartY, true)
+    );
 
     // Recreate elements only for used ships under player grid
     ships.forEach((ship, index) => {
@@ -932,9 +927,14 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
-    // First remove all graphics
+    // First remove only shot markers and grid lines
     scene.children.list
-        .filter(child => child.type === 'Graphics')
+        .filter(child => 
+            // Remove only graphics that aren't ship rectangles
+            (child.type === 'Graphics' && !(child.y >= startY && child.y <= buttonY)) ||
+            // Remove only sprites that are shot markers
+            child.getData('shotMarker')
+        )
         .forEach(child => child.destroy());
 
     // Calculate grid positions
@@ -1093,4 +1093,50 @@ function drawGrid(scene, startX, startY) {
         graphics.lineTo(startX + (GRID_DIMENSION * GRID_SIZE), startY + (i * GRID_SIZE));
     }
     graphics.strokePath();
+}
+
+// Modify handleShot function to add custom data
+function handleShot(scene, x, y, startX, startY, isHit) {
+    if (isHit) {
+        // Add explosion sprite with custom data
+        const explosion = scene.add.sprite(
+            startX + (x * GRID_SIZE) + GRID_SIZE/2,
+            startY + (y * GRID_SIZE) + GRID_SIZE/2,
+            'explosion'
+        );
+        explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
+        explosion.setData('shotMarker', true); // Add identifier
+    } else {
+        // Replace water with missed shot sprite with custom data
+        const missedShot = scene.add.sprite(
+            startX + (x * GRID_SIZE) + GRID_SIZE/2,
+            startY + (y * GRID_SIZE) + GRID_SIZE/2,
+            'missed-dark'
+        );
+        missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
+        missedShot.setData('shotMarker', true); // Add identifier
+    }
+}
+
+// Add new function to handle ship placement
+function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
+    const isHorizontal = ship.rotation % 180 === 0;
+    const x = ship.tiles[0].x;
+    const y = ship.tiles[0].y;
+
+    // Calculate ship position based on its size and rotation
+    const shipX = startX + (x * GRID_SIZE) + (isHorizontal ? (ship.size * GRID_SIZE) / 2 : GRID_SIZE/2);
+    const shipY = startY + (y * GRID_SIZE) + (!isHorizontal ? (ship.size * GRID_SIZE) / 2 : GRID_SIZE/2);
+
+    // Create ship sprite
+    const shipSprite = scene.add.sprite(shipX, shipY, `ship-${ship.size}`);
+    shipSprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
+    shipSprite.setAngle(ship.rotation);
+
+    return {
+        sprite: shipSprite,
+        tiles: ship.tiles,
+        size: ship.size,
+        rotation: ship.rotation
+    };
 } 
