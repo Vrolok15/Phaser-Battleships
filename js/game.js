@@ -36,6 +36,8 @@ const SHIP_Y_OFFSET = 32;
 const TEXT_PADDING = 10;
 const RECT_PADDING = 5;
 let enemyPlacedShips = []; // Array to track enemy ships' positions
+let playerWins = 0;
+let computerWins = 0;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -511,11 +513,11 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
 
     // Ship configurations
     ships = [
-        { size: 1, name: 'Patrol Boat', amount: 5, used: 0 },
-        { size: 2, name: 'Submarine', amount: 4, used: 0 },
-        { size: 3, name: 'Cruiser', amount: 3, used: 0 },
-        { size: 4, name: 'Battleship', amount: 2, used: 0 },
-        { size: 5, name: 'Carrier', amount: 1, used: 0 }
+        { size: 1, name: 'Patrol Boat', amount: 5, used: 0, destroyed: 0 },
+        { size: 2, name: 'Submarine', amount: 4, used: 0, destroyed: 0 },
+        { size: 3, name: 'Cruiser', amount: 3, used: 0, destroyed: 0 },
+        { size: 4, name: 'Battleship', amount: 2, used: 0, destroyed: 0 },
+        { size: 5, name: 'Carrier', amount: 1, used: 0, destroyed: 0 }
     ];
 
     ships.forEach((ship, index) => {
@@ -880,9 +882,11 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
     });
 
     // Create enemy ships
-    enemyPlacedShips = placedShips.map(ship => 
-        placeShipOnGrid(scene, ship, enemyGridX, gridStartY, true)
-    );
+    enemyPlacedShips = placedShips.map(ship => {
+        const enemyShip = placeShipOnGrid(scene, ship, enemyGridX, gridStartY, true);
+        enemyShip.hits = new Set(); // Add hit tracking
+        return enemyShip;
+    });
 
     // Recreate elements only for used ships under player grid
     ships.forEach((ship, index) => {
@@ -927,7 +931,7 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
-    // First remove only shot markers and grid lines
+    // First remove all graphics and shot markers
     scene.children.list
         .filter(child => 
             // Remove only graphics that aren't ship rectangles
@@ -943,8 +947,12 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     
     // Draw both grids with coordinates
     drawBothGrids(scene, gridStartX, enemyGridX, gridStartY);
+    
+    // Create interactive grids
+    createGrid(scene, gridStartX, gridStartY, 'Player Grid', false);
+    createGrid(scene, enemyGridX, gridStartY, 'Enemy Grid', true);
 
-    // Rest of the restart logic...
+    // Reset game state
     gameStarted = false;
     
     // Clear all placed ships
@@ -955,10 +963,11 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     enemyPlacedShips.forEach(ship => ship.sprite.destroy());
     enemyPlacedShips = [];
     
-    // Reset ship inventory
+    // Reset ship inventory including destroyed count
     ships.forEach(ship => {
         ship.amount = ship.amount + ship.used;
         ship.used = 0;
+        ship.destroyed = 0;
     });
     
     // Clear any selected ship
@@ -969,30 +978,26 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     selectedShip = null;
     currentRotation = 0;
 
-    // Remove all existing elements including graphics
+    // Remove all existing elements in ship selection area
     scene.children.list
-        .filter(child => {
-            // Check if element is in ship selection area or is a graphics object
-            const isInShipArea = child.y >= startY;
-            const isGraphics = child.type === 'Graphics';
-            // Include all graphics objects and elements in ship area
-            return isInShipArea || isGraphics;
-        })
+        .filter(child => child.y >= startY)
         .forEach(child => child.destroy());
 
     // Remove all existing event listeners for shipPlaced
     scene.events.removeListener('shipPlaced');
 
-    // Recreate the ship selection UI (which will add new event listeners)
+    // Recreate the ship selection UI
     createShipSelection(scene, gridStartX, gridStartY, startY);
 
     // Re-enable grid interaction
     enableGridInteraction(scene);
 }
 
-// Helper functions
+// Update recreateShipUI to add identifiers
 function recreateShipUI(scene, ship, shipY, gridStartX) {
     const gridWidth = GRID_SIZE * GRID_DIMENSION;
+    const isEnemyGrid = gridStartX > config.width/2;
+    const gridType = isEnemyGrid ? 'enemy' : 'player';
 
     // Add ship sprite
     const sprite = scene.add.sprite(
@@ -1002,26 +1007,46 @@ function recreateShipUI(scene, ship, shipY, gridStartX) {
     );
     sprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
 
-    // Add ship name and amount
+    // Add ship name and amount with destroyed count for enemy grid
+    let text;
+    if (isEnemyGrid) {
+        const destroyedCount = enemyPlacedShips
+            .filter(s => s.size === ship.size && 
+                s.tiles.every(tile => s.hits.has(`${tile.x},${tile.y}`)))
+            .length;
+        text = `${ship.name} x${ship.used} (-${ship.destroyed})`;
+        ship.destroyed = destroyedCount;
+    } else {
+        text = `${ship.name} x${ship.used}`;
+    }
+
     const nameText = scene.add.text(
         gridStartX + (ship.size * GRID_SIZE) + TEXT_PADDING,
         shipY + GRID_SIZE/2,
-        `${ship.name} x${ship.used}`,
+        text,
         {
             fontSize: '16px',
             fill: '#fff'
         }
     ).setOrigin(0, 0.5);
+    nameText.setData('shipUIType', `${gridType}-text-${ship.size}`);
 
     // Add rectangle outline
     const shipRect = scene.add.graphics();
-    shipRect.lineStyle(1, 0xffffff);
+    const isFullyDestroyed = isEnemyGrid && ship.destroyed === ship.used;
+    shipRect.lineStyle(1, isFullyDestroyed ? 0x666666 : 0xffffff, isFullyDestroyed ? 0.5 : 1);
     shipRect.strokeRect(
         gridStartX,
         shipY - RECT_PADDING,
         gridWidth,
         GRID_SIZE + (RECT_PADDING * 2)
     );
+    shipRect.setData('shipUIType', `${gridType}-rect-${ship.size}`);
+
+    // Gray out text if all ships of this type are destroyed
+    if (isFullyDestroyed) {
+        nameText.setTint(0x666666);
+    }
 }
 
 function disableGridInteraction(scene) {
@@ -1095,26 +1120,106 @@ function drawGrid(scene, startX, startY) {
     graphics.strokePath();
 }
 
-// Modify handleShot function to add custom data
+// Update function to only update existing UI elements
+function updateShipUI(scene, ships, startY, gridStartX, enemyGridX) {
+    ships.forEach((ship, index) => {
+        if (ship.used > 0) {
+            const shipY = startY + SHIP_Y_OFFSET + (index * VERTICAL_SPACING);
+            
+            // Find existing UI elements for both grids
+            const playerElements = findShipUIElements(scene, ship, shipY, gridStartX);
+            const enemyElements = findShipUIElements(scene, ship, shipY, enemyGridX);
+
+            // Update player grid UI
+            if (playerElements.text) {
+                playerElements.text.setText(`${ship.name} x${ship.used}`);
+            }
+
+            // Update enemy grid UI
+            if (enemyElements.text) {
+                enemyElements.text.setText(`${ship.name} x${ship.used} (-${ship.destroyed})`);
+                
+                const isFullyDestroyed = ship.destroyed === ship.used;
+                if (isFullyDestroyed) {
+                    enemyElements.text.setTint(0x666666);
+                    if (enemyElements.graphics) {
+                        enemyElements.graphics.clear();
+                        enemyElements.graphics.lineStyle(1, 0x666666, 0.5);
+                        enemyElements.graphics.strokeRect(
+                            enemyGridX,
+                            shipY - RECT_PADDING,
+                            GRID_SIZE * GRID_DIMENSION,
+                            GRID_SIZE + (RECT_PADDING * 2)
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Update findShipUIElements to use identifiers
+function findShipUIElements(scene, ship, shipY, gridStartX) {
+    const gridType = gridStartX > config.width/2 ? 'enemy' : 'player';
+    
+    return {
+        text: scene.children.list.find(
+            child => child.getData('shipUIType') === `${gridType}-text-${ship.size}`
+        ),
+        graphics: scene.children.list.find(
+            child => child.getData('shipUIType') === `${gridType}-rect-${ship.size}`
+        )
+    };
+}
+
+// Modify handleShot function to track hits and update UI
 function handleShot(scene, x, y, startX, startY, isHit) {
     if (isHit) {
-        // Add explosion sprite with custom data
+        const hitShip = enemyPlacedShips.find(ship => 
+            ship.tiles.some(tile => tile.x === x && tile.y === y)
+        );
+
+        if (hitShip) {
+            hitShip.hits.add(`${x},${y}`);
+            const isDestroyed = hitShip.tiles.every(tile => 
+                hitShip.hits.has(`${tile.x},${tile.y}`)
+            );
+
+            if (isDestroyed) {
+                hitShip.sprite.setTint(0x666666);
+                const shipType = ships.find(s => s.size === hitShip.size);
+                if (shipType) {
+                    shipType.destroyed++;
+                    
+                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
+                    const enemyGridX = startX;
+                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
+                    
+                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
+
+                    // Check for victory after updating UI
+                    checkVictory(scene, ships);
+                }
+            }
+        }
+
+        // Add explosion sprite
         const explosion = scene.add.sprite(
             startX + (x * GRID_SIZE) + GRID_SIZE/2,
             startY + (y * GRID_SIZE) + GRID_SIZE/2,
             'explosion'
         );
         explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
-        explosion.setData('shotMarker', true); // Add identifier
+        explosion.setData('shotMarker', true);
     } else {
-        // Replace water with missed shot sprite with custom data
+        // Missed shot code remains the same
         const missedShot = scene.add.sprite(
             startX + (x * GRID_SIZE) + GRID_SIZE/2,
             startY + (y * GRID_SIZE) + GRID_SIZE/2,
             'missed-dark'
         );
         missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
-        missedShot.setData('shotMarker', true); // Add identifier
+        missedShot.setData('shotMarker', true);
     }
 }
 
@@ -1139,4 +1244,75 @@ function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
         size: ship.size,
         rotation: ship.rotation
     };
+}
+
+// Add function to check for victory
+function checkVictory(scene, ships) {
+    const allShipsDestroyed = ships.every(ship => 
+        ship.used > 0 ? ship.destroyed === ship.used : true
+    );
+
+    if (allShipsDestroyed) {
+        showVictoryScreen(scene);
+    }
+}
+
+// Add function to show victory screen
+function showVictoryScreen(scene) {
+    // Increment win counter
+    playerWins++;
+
+    // Create semi-transparent background
+    const overlay = scene.add.rectangle(
+        0, 0, config.width, config.height,
+        0x000000, 0.7
+    );
+    overlay.setOrigin(0);
+
+    // Add victory text
+    const victoryText = scene.add.text(
+        config.width/2, 
+        config.height/3,
+        'Congratulations! You win!',
+        {
+            fontSize: '48px',
+            fill: '#fff',
+            fontStyle: 'bold'
+        }
+    ).setOrigin(0.5);
+
+    // Add score text
+    const scoreText = scene.add.text(
+        config.width/2,
+        config.height/2,
+        `Player Wins: ${playerWins}\nComputer Wins: ${computerWins}`,
+        {
+            fontSize: '32px',
+            fill: '#fff',
+            align: 'center'
+        }
+    ).setOrigin(0.5);
+
+    // Add restart button
+    const buttonWidth = 200;
+    const buttonHeight = 50;
+    const restartButton = createButton(
+        scene,
+        'Play Again',
+        config.width/2 - buttonWidth/2,
+        config.height * 2/3,
+        buttonWidth,
+        buttonHeight,
+        0x3399ff,
+        () => {
+            // Remove victory screen elements
+            overlay.destroy();
+            victoryText.destroy();
+            scoreText.destroy();
+            restartButton.destroy();
+            
+            // Restart game
+            handleRestartClick(scene, startY, gridStartX, gridStartY);
+        }
+    );
 } 
