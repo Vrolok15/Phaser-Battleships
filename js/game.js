@@ -25,10 +25,112 @@ let ships = null; // Will store reference to ships array
 let currentRotation = 0; // Track current rotation in degrees
 let lastHoveredTile = null;
 let placedShips = []; // Array to track placed ships' positions
+let gameStarted = false;
 
-const GRID_SIZE = 32; // Changed from 40 to 32
-const GRID_DIMENSION = 10; // 10x10 grid
-const GRID_SPACING = 40; // Reduced spacing between grids for better fit
+// Add to global variables at the top
+const GRID_SIZE = 32;
+const GRID_DIMENSION = 10;
+const GRID_SPACING = 40;
+const VERTICAL_SPACING = 50;
+const SHIP_Y_OFFSET = 32;
+const TEXT_PADDING = 10;
+const RECT_PADDING = 5;
+
+// Move createButton to global scope (add after other global variables)
+function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
+    let isDisabled = startDisabled;
+    
+    // Create interactive rectangle zone with fill color for visibility
+    const hitZone = scene.add.rectangle(
+        x + width/2,
+        y + height/2,
+        width,
+        height,
+        color,
+        isDisabled ? 0.1 : 0.2
+    );
+    
+    if (!isDisabled) {
+        hitZone.setInteractive();
+    }
+
+    // Add rectangle graphics for outline and hover effect
+    const buttonRect = scene.add.graphics();
+    
+    function drawRect(color = 0xffffff, alpha = 1) {
+        buttonRect.clear();
+        buttonRect.lineStyle(2, isDisabled ? 0x666666 : color, alpha);
+        buttonRect.strokeRect(
+            x,
+            y,
+            width,
+            height
+        );
+    }
+
+    // Add button text
+    const buttonText = scene.add.text(
+        x + width/2,
+        y + height/2,
+        text,
+        {
+            fontSize: '24px',
+            fill: '#fff'
+        }
+    ).setOrigin(0.5);
+    
+    if (isDisabled) {
+        buttonText.setTint(0x666666);
+    }
+
+    // Draw initial rectangle
+    drawRect();
+
+    // Add hover effects
+    hitZone.on('pointerover', () => {
+        if (!isDisabled) {
+            drawRect(color);
+            buttonText.setTint(color);
+        }
+    });
+    
+    hitZone.on('pointerout', () => {
+        if (!isDisabled) {
+            drawRect();
+            buttonText.clearTint();
+        }
+    });
+
+    // Add click handler
+    hitZone.on('pointerdown', () => {
+        if (!isDisabled) {
+            callback();
+        }
+    });
+
+    // Return functions to enable/disable the button
+    return {
+        enable: () => {
+            isDisabled = false;
+            hitZone.setInteractive();
+            buttonText.clearTint();
+            drawRect();
+            hitZone.alpha = 0.2;
+        },
+        disable: () => {
+            isDisabled = true;
+            hitZone.disableInteractive();
+            buttonText.setTint(0x666666);
+            drawRect();
+            hitZone.alpha = 0.1;
+        },
+        destroy: () => {
+            hitZone.destroy();
+            buttonRect.destroy();
+            buttonText.destroy();
+        }
+    };
+}
 
 function preload() {
     // Add loading error handler
@@ -358,10 +460,12 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
 
 function createShipSelection(scene, gridStartX, gridStartY, startY) {
     const gridWidth = GRID_SIZE * GRID_DIMENSION;
-    const verticalSpacing = 50;
-    const shipYOffset = 32;
-    const textPadding = 10;
-    const rectPadding = 5;
+    
+    // Remove these local constants since they're now global
+    // const verticalSpacing = 50;
+    // const shipYOffset = 32;
+    // const textPadding = 10;
+    // const rectPadding = 5;
 
     // Center the "Player Ships:" label under the grid
     const labelText = scene.add.text(gridStartX + gridWidth/2, startY, 'Player Ships:', {
@@ -379,7 +483,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
     ];
 
     ships.forEach((ship, index) => {
-        const shipY = startY + shipYOffset + (index * verticalSpacing);
+        const shipY = startY + SHIP_Y_OFFSET + (index * VERTICAL_SPACING);
         
         // Add ship sprite at the left side of the rectangle
         const sprite = scene.add.sprite(
@@ -409,7 +513,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
 
         // Add ship name and amount right after the ship sprite
         const nameText = scene.add.text(
-            gridStartX + (ship.size * GRID_SIZE) + textPadding,
+            gridStartX + (ship.size * GRID_SIZE) + TEXT_PADDING,
             shipY + GRID_SIZE/2,
             ship.name + ' (x' + ship.amount + ')',
             {
@@ -423,7 +527,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             gridStartX + gridWidth/2,
             shipY + GRID_SIZE/2,
             gridWidth,
-            GRID_SIZE + (rectPadding * 2)
+            GRID_SIZE + (RECT_PADDING * 2)
         );
         hitZone.setInteractive();
 
@@ -435,9 +539,9 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             shipRect.lineStyle(1, color, alpha);
             shipRect.strokeRect(
                 gridStartX,
-                shipY - rectPadding,
+                shipY - RECT_PADDING,
                 gridWidth,
-                GRID_SIZE + (rectPadding * 2)
+                GRID_SIZE + (RECT_PADDING * 2)
             );
         }
 
@@ -506,7 +610,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
     // Listen for shipPlaced event to update UI
     scene.events.on('shipPlaced', (shipIndex) => {
         const ship = ships[shipIndex];
-        const shipY = startY + shipYOffset + (shipIndex * verticalSpacing);
+        const shipY = startY + SHIP_Y_OFFSET + (shipIndex * VERTICAL_SPACING);
         
         // Find all relevant elements for this ship
         const elements = {
@@ -525,7 +629,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             ),
             graphics: scene.children.list.find(
                 gfx => gfx.type === 'Graphics' && 
-                Math.abs(gfx.y - shipY) < verticalSpacing
+                Math.abs(gfx.y - shipY) < VERTICAL_SPACING
             )
         };
 
@@ -538,9 +642,9 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
                     elements.graphics.lineStyle(1, 0x666666, 0.5);
                     elements.graphics.strokeRect(
                         gridStartX,
-                        shipY - rectPadding,
+                        shipY - RECT_PADDING,
                         gridWidth,
-                        GRID_SIZE + (rectPadding * 2)
+                        GRID_SIZE + (RECT_PADDING * 2)
                     );
                 }
                 if (elements.sprite) {
@@ -558,9 +662,9 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
                     elements.graphics.lineStyle(1, 0xffffff);
                     elements.graphics.strokeRect(
                         gridStartX,
-                        shipY - rectPadding,
+                        shipY - RECT_PADDING,
                         gridWidth,
-                        GRID_SIZE + (rectPadding * 2)
+                        GRID_SIZE + (RECT_PADDING * 2)
                     );
                 }
                 if (elements.sprite) {
@@ -575,131 +679,46 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
     });
 
     // After the ships forEach loop, add buttons
-    const lastShipY = startY + shipYOffset + ((ships.length - 1) * verticalSpacing);
-    const buttonY = lastShipY + verticalSpacing;
-    const buttonHeight = GRID_SIZE + (rectPadding * 2);
+    const lastShipY = startY + SHIP_Y_OFFSET + ((ships.length - 1) * VERTICAL_SPACING);
+    const buttonY = lastShipY + VERTICAL_SPACING;
+    const buttonHeight = GRID_SIZE + (RECT_PADDING * 2);
     const buttonWidth = gridWidth * 0.45;
     const buttonGap = gridWidth * 0.1;
 
-    // Helper function to create button
-    function createButton(text, x, color, callback, startDisabled = false) {
-        let isDisabled = startDisabled;
-        
-        // Create interactive rectangle zone with fill color for visibility
-        const hitZone = scene.add.rectangle(
-            x + buttonWidth/2,
-            buttonY + buttonHeight/2,
-            buttonWidth,
-            buttonHeight,
-            color,
-            isDisabled ? 0.1 : 0.2
-        );
-        
-        if (!isDisabled) {
-            hitZone.setInteractive();
-        }
-
-        // Add rectangle graphics for outline and hover effect
-        const buttonRect = scene.add.graphics();
-        
-        function drawRect(color = 0xffffff, alpha = 1) {
-            buttonRect.clear();
-            buttonRect.lineStyle(2, isDisabled ? 0x666666 : color, alpha);
-            buttonRect.strokeRect(
-                x,
-                buttonY,
-                buttonWidth,
-                buttonHeight
-            );
-        }
-
-        // Add button text
-        const buttonText = scene.add.text(
-            x + buttonWidth/2,
-            buttonY + buttonHeight/2,
-            text,
-            {
-                fontSize: '24px',
-                fill: '#fff'
-            }
-        ).setOrigin(0.5);
-        
-        if (isDisabled) {
-            buttonText.setTint(0x666666);
-        }
-
-        // Draw initial rectangle
-        drawRect();
-
-        // Add hover effects
-        hitZone.on('pointerover', () => {
-            if (!isDisabled) {
-                drawRect(color);
-                buttonText.setTint(color);
-            }
-        });
-        
-        hitZone.on('pointerout', () => {
-            if (!isDisabled) {
-                drawRect();
-                buttonText.clearTint();
-            }
-        });
-
-        // Add click handler
-        hitZone.on('pointerdown', () => {
-            if (!isDisabled) {
-                callback();
-            }
-        });
-
-        // Return functions to enable/disable the button
-        return {
-            enable: () => {
-                isDisabled = false;
-                hitZone.setInteractive();
-                buttonText.clearTint();
-                drawRect();
-                hitZone.alpha = 0.2;
-            },
-            disable: () => {
-                isDisabled = true;
-                hitZone.disableInteractive();
-                buttonText.setTint(0x666666);
-                drawRect();
-                hitZone.alpha = 0.1;
-            }
-        };
-    }
-
     // Create Clear button
-    const clearButton = createButton('Clear', gridStartX, 0xff6666, () => {
-        // Remove all placed ships
-        placedShips.forEach(ship => ship.sprite.destroy());
-        placedShips = [];
-
-        // Reset ship inventory
-        ships.forEach((ship, index) => {
-            ship.amount += ship.used;
-            ship.used = 0;
-            scene.events.emit('shipPlaced', index);
-        });
-
-        // Clear any selected ship
-        if (followingSprite) {
-            followingSprite.destroy();
-            followingSprite = null;
-        }
-        selectedShip = null;
-        currentRotation = 0;
-        startButton.disable(); // Disable start button after clearing
-    });
+    const clearButton = createButton(
+        scene,
+        'Clear',
+        gridStartX,
+        buttonY,
+        buttonWidth,
+        buttonHeight,
+        0xff6666,
+        () => handleClearClick(scene, startY, gridStartX, gridStartY, startButton)
+    );
 
     // Create Start button (disabled initially)
-    const startButton = createButton('Start!', gridStartX + gridWidth - buttonWidth, 0x66ff66, () => {
-        // Will be implemented later
-        console.log('Start button clicked!');
-    }, true);
+    const startButton = createButton(
+        scene,
+        'Start!',
+        gridStartX + gridWidth - buttonWidth,
+        buttonY,
+        buttonWidth,
+        buttonHeight,
+        0x66ff66,
+        () => handleStartClick(
+            scene, 
+            startY, 
+            gridStartX, 
+            gridStartY, 
+            buttonY, 
+            buttonWidth,
+            buttonHeight,
+            clearButton, 
+            startButton
+        ),
+        true
+    );
 
     // Add observer for placedShips array
     scene.events.on('shipPlaced', () => {
@@ -707,6 +726,168 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             startButton.enable();
         } else {
             startButton.disable();
+        }
+    });
+}
+
+function handleClearClick(scene, startY, gridStartX, gridStartY, startButton) {
+    // Remove all placed ships
+    placedShips.forEach(ship => ship.sprite.destroy());
+    placedShips = [];
+
+    // Reset ship inventory
+    ships.forEach((ship, index) => {
+        ship.amount += ship.used;
+        ship.used = 0;
+        scene.events.emit('shipPlaced', index);
+    });
+
+    // Clear any selected ship
+    if (followingSprite) {
+        followingSprite.destroy();
+        followingSprite = null;
+    }
+    selectedShip = null;
+    currentRotation = 0;
+    startButton.disable();
+}
+
+function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, clearButton, startButton) {
+    // Set game state to started
+    gameStarted = true;
+
+    // Remove all existing ship selection elements including grid overlays and rectangles
+    scene.children.list
+        .filter(child => {
+            const isInShipArea = child.y >= startY && child.y <= buttonY;
+            const isGraphics = child.type === 'Graphics';
+            return isInShipArea || (isGraphics && child.y < buttonY);
+        })
+        .forEach(child => child.destroy());
+
+    // Recreate elements only for used ships
+    ships.forEach((ship, index) => {
+        if (ship.used > 0) {
+            const shipY = startY + SHIP_Y_OFFSET + (index * VERTICAL_SPACING);
+            recreateShipUI(scene, ship, shipY, gridStartX);
+        }
+    });
+
+    // Remove ability to interact with placed ships
+    placedShips.forEach(ship => {
+        ship.sprite.removeInteractive();
+    });
+
+    // Clear any selected ship
+    if (followingSprite) {
+        followingSprite.destroy();
+        followingSprite = null;
+    }
+    selectedShip = null;
+
+    // Remove buttons
+    clearButton.destroy();
+    startButton.destroy();
+
+    // Disable grid interaction
+    disableGridInteraction(scene);
+
+    // Add restart button
+    createButton(
+        scene,
+        'Restart',
+        gridStartX,
+        buttonY,
+        buttonWidth,
+        buttonHeight,
+        0x3399ff,
+        () => handleRestartClick(scene, startY, gridStartX, gridStartY)
+    );
+}
+
+function handleRestartClick(scene, startY, gridStartX, gridStartY) {
+    // Reset game state
+    gameStarted = false;
+    
+    // Clear all placed ships
+    placedShips.forEach(ship => ship.sprite.destroy());
+    placedShips = [];
+    
+    // Reset ship inventory
+    ships.forEach(ship => {
+        ship.amount = ship.amount + ship.used;
+        ship.used = 0;
+    });
+    
+    // Clear any selected ship
+    if (followingSprite) {
+        followingSprite.destroy();
+        followingSprite = null;
+    }
+    selectedShip = null;
+    currentRotation = 0;
+
+    // Remove all existing elements
+    scene.children.list
+        .filter(child => child.y >= startY)
+        .forEach(child => child.destroy());
+
+    // Remove all existing event listeners for shipPlaced
+    scene.events.removeListener('shipPlaced');
+
+    // Recreate the ship selection UI (which will add new event listeners)
+    createShipSelection(scene, gridStartX, gridStartY, startY);
+
+    // Re-enable grid interaction
+    enableGridInteraction(scene);
+}
+
+// Helper functions
+function recreateShipUI(scene, ship, shipY, gridStartX) {
+    const gridWidth = GRID_SIZE * GRID_DIMENSION;
+
+    // Add ship sprite
+    const sprite = scene.add.sprite(
+        gridStartX + (ship.size * GRID_SIZE) / 2,
+        shipY + GRID_SIZE/2,
+        `ship-${ship.size}`
+    );
+    sprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
+
+    // Add ship name and amount
+    const nameText = scene.add.text(
+        gridStartX + (ship.size * GRID_SIZE) + TEXT_PADDING,
+        shipY + GRID_SIZE/2,
+        `${ship.name} x${ship.used}`,
+        {
+            fontSize: '16px',
+            fill: '#fff'
+        }
+    ).setOrigin(0, 0.5);
+
+    // Add rectangle outline
+    const shipRect = scene.add.graphics();
+    shipRect.lineStyle(1, 0xffffff);
+    shipRect.strokeRect(
+        gridStartX,
+        shipY - RECT_PADDING,
+        gridWidth,
+        GRID_SIZE + (RECT_PADDING * 2)
+    );
+}
+
+function disableGridInteraction(scene) {
+    scene.children.list.forEach(child => {
+        if (child.type === 'Rectangle' && child.width === GRID_SIZE) {
+            child.disableInteractive();
+        }
+    });
+}
+
+function enableGridInteraction(scene) {
+    scene.children.list.forEach(child => {
+        if (child.type === 'Rectangle' && child.width === GRID_SIZE) {
+            child.setInteractive();
         }
     });
 }
