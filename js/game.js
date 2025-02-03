@@ -23,6 +23,8 @@ let selectedShip = null;
 let followingSprite = null;
 let ships = null; // Will store reference to ships array
 let currentRotation = 0; // Track current rotation in degrees
+let lastHoveredTile = null;
+let placedShips = []; // Array to track placed ships' positions
 
 const GRID_SIZE = 32; // Changed from 40 to 32
 const GRID_DIMENSION = 10; // 10x10 grid
@@ -98,8 +100,13 @@ function create() {
             currentRotation = (currentRotation + (deltaY > 0 ? 90 : -90)) % 360;
             if (currentRotation < 0) currentRotation += 360;
             followingSprite.setAngle(currentRotation);
+
+            // Update highlight using last hovered tile
+            if (lastHoveredTile) {
+                lastHoveredTile.emit('pointerover');
+            }
         }
-    });
+    }.bind(this));
 }
 
 function createGrid(scene, startX, startY, title, isEnemy = false) {
@@ -173,27 +180,149 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
             );
             tileZone.setInteractive();
 
-            // Add hover effects
+            // Helper function to check if a ship placement would overlap with existing ships
+            function checkShipCollision(x, y, length, isHorizontal) {
+                const occupiedTiles = [];
+                
+                // Get all tiles that would be occupied by the new ship
+                for (let i = 0; i < length; i++) {
+                    if (isHorizontal) {
+                        occupiedTiles.push({x: x + i, y: y});
+                    } else {
+                        occupiedTiles.push({x: x, y: y + i});
+                    }
+                }
+
+                // Check against all placed ships
+                return placedShips.some(ship => {
+                    return ship.tiles.some(tile => 
+                        occupiedTiles.some(newTile => 
+                            newTile.x === tile.x && newTile.y === tile.y
+                        )
+                    );
+                });
+            }
+
+            // Modify the hover effect to include collision check
             tileZone.on('pointerover', () => {
+                lastHoveredTile = tileZone; // Store the last hovered tile
                 highlightGraphics.clear();
                 
-                // Choose color based on grid type and whether a ship is selected
-                let highlightColor = 0xffd700; // Default gold
-                if (followingSprite) {
-                    highlightColor = isEnemy ? 0xff0000 : 0x00ff00; // Red for enemy, green for player
+                if (followingSprite && selectedShip) {
+                    const isHorizontal = currentRotation % 180 === 0;
+                    const shipLength = selectedShip.size;
+                    
+                    // Check if ship fits within grid bounds
+                    const fitsHorizontally = x + shipLength <= GRID_DIMENSION;
+                    const fitsVertically = y + shipLength <= GRID_DIMENSION;
+                    const canPlace = isHorizontal ? fitsHorizontally : fitsVertically;
+
+                    // Check for collisions
+                    const wouldCollide = checkShipCollision(x, y, shipLength, isHorizontal);
+                    
+                    // Set highlight color based on placement possibility and collisions
+                    const highlightColor = !isEnemy ? 
+                        (canPlace && !wouldCollide ? 0x00ff00 : 0xff0000) : 
+                        0xff0000;
+
+                    // Highlight all tiles the ship would occupy
+                    if (!isEnemy) {
+                        for (let i = 0; i < shipLength; i++) {
+                            if (isHorizontal && x + i < GRID_DIMENSION) {
+                                highlightGraphics.fillStyle(highlightColor, 0.3);
+                                highlightGraphics.fillRect(
+                                    startX + ((x + i) * GRID_SIZE),
+                                    startY + (y * GRID_SIZE),
+                                    GRID_SIZE,
+                                    GRID_SIZE
+                                );
+                            } else if (!isHorizontal && y + i < GRID_DIMENSION) {
+                                highlightGraphics.fillStyle(highlightColor, 0.3);
+                                highlightGraphics.fillRect(
+                                    startX + (x * GRID_SIZE),
+                                    startY + ((y + i) * GRID_SIZE),
+                                    GRID_SIZE,
+                                    GRID_SIZE
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    // Default hover highlight
+                    let highlightColor = 0xffd700;
+                    highlightGraphics.fillStyle(highlightColor, 0.3);
+                    highlightGraphics.fillRect(
+                        startX + (x * GRID_SIZE),
+                        startY + (y * GRID_SIZE),
+                        GRID_SIZE,
+                        GRID_SIZE
+                    );
                 }
-                
-                highlightGraphics.fillStyle(highlightColor, 0.3);
-                highlightGraphics.fillRect(
-                    startX + (x * GRID_SIZE),
-                    startY + (y * GRID_SIZE),
-                    GRID_SIZE,
-                    GRID_SIZE
-                );
             });
 
             tileZone.on('pointerout', () => {
+                lastHoveredTile = null; // Clear the reference when leaving
                 highlightGraphics.clear();
+            });
+
+            // Modify the click handler to update highlight after placement
+            tileZone.on('pointerdown', (pointer) => {
+                if (!isEnemy && followingSprite && selectedShip) {
+                    const isHorizontal = currentRotation % 180 === 0;
+                    const shipLength = selectedShip.size;
+                    
+                    // Check if ship fits
+                    const fitsHorizontally = x + shipLength <= GRID_DIMENSION;
+                    const fitsVertically = y + shipLength <= GRID_DIMENSION;
+                    const canPlace = isHorizontal ? fitsHorizontally : fitsVertically;
+
+                    // Check for collisions
+                    const wouldCollide = checkShipCollision(x, y, shipLength, isHorizontal);
+
+                    if (canPlace && !wouldCollide) {
+                        // Calculate ship position based on its size and rotation
+                        const shipX = startX + (x * GRID_SIZE) + (isHorizontal ? (shipLength * GRID_SIZE) / 2 : GRID_SIZE/2);
+                        const shipY = startY + (y * GRID_SIZE) + (!isHorizontal ? (shipLength * GRID_SIZE) / 2 : GRID_SIZE/2);
+
+                        const placedShip = scene.add.sprite(shipX, shipY, `ship-${selectedShip.size}`);
+                        placedShip.setDisplaySize(GRID_SIZE * shipLength, GRID_SIZE);
+                        placedShip.setAngle(currentRotation);
+
+                        // Store the placed ship's position
+                        const shipTiles = [];
+                        for (let i = 0; i < shipLength; i++) {
+                            if (isHorizontal) {
+                                shipTiles.push({x: x + i, y: y});
+                            } else {
+                                shipTiles.push({x: x, y: y + i});
+                            }
+                        }
+                        placedShips.push({
+                            sprite: placedShip,
+                            tiles: shipTiles,
+                            size: shipLength,
+                            rotation: currentRotation
+                        });
+
+                        const placedShipIndex = selectedShip.index;
+                        ships[placedShipIndex].amount--;
+                        ships[placedShipIndex].used++;
+
+                        if (ships[placedShipIndex].amount <= 0) {
+                            followingSprite.destroy();
+                            followingSprite = null;
+                            selectedShip = null;
+                            currentRotation = 0;
+                        }
+
+                        scene.events.emit('shipPlaced', placedShipIndex);
+
+                        // Update highlight to show new collision areas
+                        if (lastHoveredTile) {
+                            lastHoveredTile.emit('pointerover');
+                        }
+                    }
+                }
             });
         }
     }
@@ -344,6 +473,59 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             drawRect(0x666666, 0.5);
             sprite.setTint(0x666666);
             nameText.setTint(0x666666);
+        }
+    });
+
+    // Listen for shipPlaced event to update UI
+    scene.events.on('shipPlaced', (shipIndex) => {
+        const ship = ships[shipIndex];
+        const shipY = startY + shipYOffset + (shipIndex * verticalSpacing);
+        
+        // Find all relevant elements for this ship
+        const elements = {
+            text: scene.children.list.find(
+                child => child.type === 'Text' && 
+                child.y === shipY + GRID_SIZE/2 && 
+                child.text.includes(ship.name)
+            ),
+            hitZone: scene.children.list.find(
+                zone => zone.type === 'Rectangle' && 
+                zone.y === shipY + GRID_SIZE/2
+            ),
+            sprite: scene.children.list.find(
+                s => s.type === 'Sprite' && 
+                s.y === shipY + GRID_SIZE/2
+            ),
+            graphics: scene.children.list.find(
+                gfx => gfx.type === 'Graphics' && 
+                Math.abs(gfx.y - shipY) < verticalSpacing
+            )
+        };
+
+        if (elements.text) {
+            // Always update the text with new amount
+            elements.text.setText(`${ship.name} (x${ship.amount})`);
+
+            if (ship.amount <= 0) {
+                // Disable and gray out everything
+                if (elements.graphics) {
+                    elements.graphics.clear();
+                    elements.graphics.lineStyle(1, 0x666666, 0.5);
+                    elements.graphics.strokeRect(
+                        gridStartX,
+                        shipY - rectPadding,
+                        gridWidth,
+                        GRID_SIZE + (rectPadding * 2)
+                    );
+                }
+                if (elements.sprite) {
+                    elements.sprite.setTint(0x666666);
+                }
+                elements.text.setTint(0x666666);
+                if (elements.hitZone) {
+                    elements.hitZone.disableInteractive();
+                }
+            }
         }
     });
 }
