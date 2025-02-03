@@ -109,7 +109,7 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
         fill: '#fff'
     }).setOrigin(0.5);
 
-    // Add water background tiles
+    // Add water background tiles first
     for (let x = 0; x < GRID_DIMENSION; x++) {
         for (let y = 0; y < GRID_DIMENSION; y++) {
             const sprite = scene.add.sprite(
@@ -121,10 +121,8 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
         }
     }
 
-    // Create graphics object for grid
+    // Create graphics object for grid lines
     const graphics = scene.add.graphics();
-    
-    // Set line style
     graphics.lineStyle(1, 0xffffff);
 
     // Draw vertical lines
@@ -138,10 +136,9 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
         graphics.moveTo(startX, startY + (i * GRID_SIZE));
         graphics.lineTo(startX + (GRID_DIMENSION * GRID_SIZE), startY + (i * GRID_SIZE));
     }
-
     graphics.strokePath();
 
-    // Add grid coordinates
+    // Add coordinates
     for (let x = 0; x < GRID_DIMENSION; x++) {
         // Add letters on top
         scene.add.text(startX + (x * GRID_SIZE) + GRID_SIZE/2, startY - 20, 
@@ -159,6 +156,45 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                         fill: '#fff'
                     }).setOrigin(0.5);
             }
+        }
+    }
+
+    // Create container for tile highlights - moved to end to be on top
+    const highlightGraphics = scene.add.graphics();
+
+    // Add interactive zones and hover effects
+    for (let x = 0; x < GRID_DIMENSION; x++) {
+        for (let y = 0; y < GRID_DIMENSION; y++) {
+            const tileZone = scene.add.rectangle(
+                startX + (x * GRID_SIZE) + GRID_SIZE/2,
+                startY + (y * GRID_SIZE) + GRID_SIZE/2,
+                GRID_SIZE,
+                GRID_SIZE
+            );
+            tileZone.setInteractive();
+
+            // Add hover effects
+            tileZone.on('pointerover', () => {
+                highlightGraphics.clear();
+                
+                // Choose color based on grid type and whether a ship is selected
+                let highlightColor = 0xffd700; // Default gold
+                if (followingSprite) {
+                    highlightColor = isEnemy ? 0xff0000 : 0x00ff00; // Red for enemy, green for player
+                }
+                
+                highlightGraphics.fillStyle(highlightColor, 0.3);
+                highlightGraphics.fillRect(
+                    startX + (x * GRID_SIZE),
+                    startY + (y * GRID_SIZE),
+                    GRID_SIZE,
+                    GRID_SIZE
+                );
+            });
+
+            tileZone.on('pointerout', () => {
+                highlightGraphics.clear();
+            });
         }
     }
 }
