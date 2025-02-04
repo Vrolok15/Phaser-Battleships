@@ -141,7 +141,8 @@ function createButton(scene, text, x, y, width, height, color, callback, startDi
             hitZone.destroy();
             buttonRect.destroy();
             buttonText.destroy();
-        }
+        },
+        hitZone
     };
 }
 
@@ -739,49 +740,107 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
     const buttonWidth = gridWidth * 0.45;
     const buttonGap = gridWidth * 0.1;
 
-    // Create Clear button
-    const clearButton = createButton(
+    // Create Random/Clear button with hover effects
+    let randomClearButton = createButton(
         scene,
-        'Clear',
+        'Random',  // Initial text
         gridStartX,
         buttonY,
         buttonWidth,
         buttonHeight,
-        0xff6666,
-        () => handleClearClick(scene, startY, gridStartX, gridStartY, startButton)
+        0x3399ff,  // Initial color (blue)
+        () => {
+            if (placedShips.length === 0) {
+                // Clear any selected ship first
+                if (followingSprite) {
+                    followingSprite.destroy();
+                    followingSprite = null;
+                }
+                selectedShip = null;
+                currentRotation = 0;
+                
+                // Random placement
+                placePlayerShipsRandomly(scene, gridStartX, gridStartY);
+            } else {
+                // Clear functionality
+                handleClearClick(scene, startY, gridStartX, gridStartY, startButton);
+            }
+        }
     );
+
+    // Add hover effects for Random button
+    randomClearButton.hitZone.on('pointerover', () => {
+        if (followingSprite) {
+            followingSprite.setVisible(false);
+        }
+    });
+
+    randomClearButton.hitZone.on('pointerout', () => {
+        if (followingSprite) {
+            followingSprite.setVisible(true);
+        }
+    });
 
     // Create Start button (disabled initially)
     const startButton = createButton(
         scene,
-        'Start!',
-        gridStartX + gridWidth - buttonWidth,
+        'Start',
+        gridStartX + buttonWidth + buttonGap,
         buttonY,
         buttonWidth,
         buttonHeight,
-        0x66ff66,
-        () => handleStartClick(
-            scene, 
-            startY, 
-            gridStartX, 
-            gridStartY, 
-            buttonY, 
-            buttonWidth,
-            buttonHeight,
-            clearButton, 
-            startButton
-        ),
+        0x33cc33,
+        () => handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, randomClearButton, startButton),
         true
     );
 
-    // Add observer for placedShips array
+    // Update shipPlaced event to handle button appearance
     scene.events.on('shipPlaced', () => {
-        if (placedShips.length > 0) {
-            startButton.enable();
-        } else {
+        if (placedShips.length === 0) {
+            // Switch to Random mode
+            randomClearButton.destroy();
+            const newButton = createButton(
+                scene,
+                'Random',
+                gridStartX,
+                buttonY,
+                buttonWidth,
+                buttonHeight,
+                0x3399ff,
+                () => {
+                    // Clear any selected ship first
+                    if (followingSprite) {
+                        followingSprite.destroy();
+                        followingSprite = null;
+                    }
+                    selectedShip = null;
+                    currentRotation = 0;
+                    
+                    // Random placement
+                    placePlayerShipsRandomly(scene, gridStartX, gridStartY);
+                }
+            );
+            randomClearButton = newButton;
             startButton.disable();
+        } else {
+            // Switch to Clear mode
+            randomClearButton.destroy();
+            const newButton = createButton(
+                scene,
+                'Clear',
+                gridStartX,
+                buttonY,
+                buttonWidth,
+                buttonHeight,
+                0xff3333,
+                () => handleClearClick(scene, startY, gridStartX, gridStartY, startButton)
+            );
+            randomClearButton = newButton;
+            startButton.enable(); // Enable start when any ships placed
         }
     });
+
+    return { randomClearButton, startButton };
 }
 
 function handleClearClick(scene, startY, gridStartX, gridStartY, startButton) {
@@ -847,7 +906,7 @@ function drawBothGrids(scene, startX1, startX2, startY) {
     });
 }
 
-function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, clearButton, startButton) {
+function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, randomClearButton, startButton) {
     gameOver = false;
     enemyTurn = false;
     // First remove only grid lines and highlights, preserving ships and ship UI
@@ -930,7 +989,7 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
     selectedShip = null;
 
     // Remove buttons
-    clearButton.destroy();
+    randomClearButton.destroy();
     startButton.destroy();
 
     // Disable grid interaction
@@ -1700,7 +1759,7 @@ function splitSpace(space, minSize) {
     return spaces;
 }
 
-// Update placeEnemyShipsRandomly to be more flexible with section selection
+// Update placeEnemyShipsRandomly to allow adjacent placement
 function placeEnemyShipsRandomly(scene, enemyGridX, gridStartY, playerShips) {
     enemyPlacedShips = [];
     
@@ -1752,7 +1811,7 @@ function placeEnemyShipsRandomly(scene, enemyGridX, gridStartY, playerShips) {
 
             const isHorizontal = ship.rotation === 0;
 
-            if (isValidEnemyShipPlacement(x, y, ship.size, isHorizontal)) {
+            if (isValidEnemyShipPlacement(x, y, ship.size, isHorizontal, true)) {
                 const tiles = [];
                 for (let i = 0; i < ship.size; i++) {
                     tiles.push({
@@ -1791,7 +1850,7 @@ function placeEnemyShipsRandomly(scene, enemyGridX, gridStartY, playerShips) {
 }
 
 // Add helper function to check if enemy ship placement is valid
-function isValidEnemyShipPlacement(x, y, size, isHorizontal) {
+function isValidEnemyShipPlacement(x, y, size, isHorizontal, allowAdjacent = false) {
     // Check if ship fits within grid
     if (isHorizontal) {
         if (x + size > GRID_DIMENSION) return false;
@@ -1813,20 +1872,160 @@ function isValidEnemyShipPlacement(x, y, size, isHorizontal) {
             return false;
         }
 
-        // Check adjacent tiles for spacing
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                const adjacentX = checkX + dx;
-                const adjacentY = checkY + dy;
-                
-                if (adjacentX >= 0 && adjacentX < GRID_DIMENSION && 
-                    adjacentY >= 0 && adjacentY < GRID_DIMENSION) {
-                    if (enemyPlacedShips.some(ship => 
-                        ship.tiles.some(tile => 
-                            tile.x === adjacentX && tile.y === adjacentY
-                        )
-                    )) {
-                        return false;
+        // Check adjacent tiles only if spacing is required
+        if (!allowAdjacent) {
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const adjacentX = checkX + dx;
+                    const adjacentY = checkY + dy;
+                    
+                    if (adjacentX >= 0 && adjacentX < GRID_DIMENSION && 
+                        adjacentY >= 0 && adjacentY < GRID_DIMENSION) {
+                        if (enemyPlacedShips.some(ship => 
+                            ship.tiles.some(tile => 
+                                tile.x === adjacentX && tile.y === adjacentY
+                            )
+                        )) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+// Update placePlayerShipsRandomly to allow adjacent placement
+function placePlayerShipsRandomly(scene, gridStartX, gridStartY) {
+    // Clear existing ships first
+    placedShips.forEach(ship => ship.sprite.destroy());
+    placedShips = [];
+
+    // Get available ships, expanding array based on amount
+    const shipsToPlace = ships
+        .filter(ship => ship.amount > 0)
+        .flatMap(ship => Array(ship.amount).fill({
+            size: ship.size,
+            rotation: Math.random() < 0.5 ? 0 : 90,
+            originalShip: ship
+        }))
+        .sort((a, b) => b.size - a.size);
+
+    // Create initial space
+    const initialSpace = {
+        x: 0,
+        y: 0,
+        width: GRID_DIMENSION,
+        height: GRID_DIMENSION
+    };
+
+    // Split grid into sections
+    let sections = [initialSpace];
+    const minSectionSize = Math.max(...shipsToPlace.map(s => s.size));
+
+    // Create sections with binary splits
+    for (let i = 0; i < 2; i++) {
+        const newSections = [];
+        sections.forEach(section => {
+            newSections.push(...splitSpace(section, minSectionSize));
+        });
+        sections = newSections;
+    }
+
+    // Try to place each ship
+    for (const ship of shipsToPlace) {
+        let placed = false;
+        let attempts = 0;
+        const maxAttempts = 200;
+
+        while (!placed && attempts < maxAttempts) {
+            const sectionIndex = Math.floor(Math.random() * sections.length);
+            const section = sections[sectionIndex];
+            
+            const x = Math.max(0, Math.min(GRID_DIMENSION - ship.size, 
+                section.x + Math.floor(Math.random() * section.width)));
+            const y = Math.max(0, Math.min(GRID_DIMENSION - ship.size, 
+                section.y + Math.floor(Math.random() * section.height)));
+
+            const isHorizontal = ship.rotation === 0;
+
+            if (isValidPlayerShipPlacement(x, y, ship.size, isHorizontal, true)) {
+                const tiles = [];
+                for (let i = 0; i < ship.size; i++) {
+                    tiles.push({
+                        x: x + (isHorizontal ? i : 0),
+                        y: y + (!isHorizontal ? i : 0)
+                    });
+                }
+
+                const placedShip = placeShipOnGrid(scene, {
+                    tiles,
+                    size: ship.size,
+                    rotation: ship.rotation
+                }, gridStartX, gridStartY);
+
+                placedShips.push(placedShip);
+                placed = true;
+
+                // Update ship inventory
+                ship.originalShip.amount--;
+                ship.originalShip.used++;
+                scene.events.emit('shipPlaced', ships.indexOf(ship.originalShip));
+
+                if (DEBUG_MODE) {
+                    console.log(`Placed player ship size ${ship.size} in section ${sectionIndex} at (${x},${y})`);
+                }
+            }
+            attempts++;
+        }
+
+        if (!placed && DEBUG_MODE) {
+            console.log(`Failed to place player ship size ${ship.size} after ${maxAttempts} attempts`);
+        }
+    }
+}
+
+// Add helper function to check if player ship placement is valid
+function isValidPlayerShipPlacement(x, y, size, isHorizontal, allowAdjacent = false) {
+    // Check if ship fits within grid
+    if (isHorizontal) {
+        if (x + size > GRID_DIMENSION) return false;
+    } else {
+        if (y + size > GRID_DIMENSION) return false;
+    }
+
+    // Check for overlaps with existing ships
+    for (let i = 0; i < size; i++) {
+        const checkX = x + (isHorizontal ? i : 0);
+        const checkY = y + (!isHorizontal ? i : 0);
+
+        // Check if any existing ship occupies this tile
+        if (placedShips.some(ship => 
+            ship.tiles.some(tile => 
+                tile.x === checkX && tile.y === checkY
+            )
+        )) {
+            return false;
+        }
+
+        // Check adjacent tiles only if spacing is required
+        if (!allowAdjacent) {
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const adjacentX = checkX + dx;
+                    const adjacentY = checkY + dy;
+                    
+                    if (adjacentX >= 0 && adjacentX < GRID_DIMENSION && 
+                        adjacentY >= 0 && adjacentY < GRID_DIMENSION) {
+                        if (placedShips.some(ship => 
+                            ship.tiles.some(tile => 
+                                tile.x === adjacentX && tile.y === adjacentY
+                            )
+                        )) {
+                            return false;
+                        }
                     }
                 }
             }
