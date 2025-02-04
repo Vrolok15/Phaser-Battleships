@@ -53,6 +53,10 @@ let enemyTurn = false;
 let enemySuccessfulShots = [];  // Array to track all successful hits
 let currentTargetShip = null;   // Track the ship we're currently targeting
 
+// Add global grid position variables
+let playerGridX = null;
+let enemyGridX = null;
+
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
     let isDisabled = startDisabled;
@@ -183,8 +187,6 @@ function create() {
         return;
     }
     
-    // Remove the hello world text
-    
     // Calculate starting positions for both grids
     const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
     const startX1 = (config.width - (totalGridWidth * 2 + GRID_SPACING)) / 2;
@@ -235,6 +237,10 @@ function create() {
             }
         }
     }.bind(this));
+
+    // Set global grid positions
+    playerGridX = startX1;
+    enemyGridX = startX2;
 }
 
 function createGrid(scene, startX, startY, title, isEnemy = false) {
@@ -574,7 +580,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
         const nameText = scene.add.text(
             gridStartX + (ship.size * GRID_SIZE) + TEXT_PADDING,
             shipY + GRID_SIZE/2,
-            ship.name + ' (x' + ship.amount + ')',
+            ship.name + ' (x' + ship.amount + ')' + ' x' + ship.used + '',
             {
                 fontSize: '16px',
                 fill: '#fff'
@@ -1108,10 +1114,19 @@ function recreateShipUI(scene, ship, shipY, gridStartX) {
             .filter(s => s.size === ship.size && 
                 s.tiles.every(tile => s.hits.has(`${tile.x},${tile.y}`)))
             .length;
-        text = `${ship.name} x${ship.used} (-${ship.destroyed})`;
-        ship.destroyed = destroyedCount;
+        text = `${ship.name} x${ship.used} `;
+        if (ship.destroyed > 0) {
+            text += `(-${ship.destroyed})`;
+        }
     } else {
-        text = `${ship.name} x${ship.used}`;
+        const destroyedCount = placedShips
+            .filter(s => s.size === ship.size && 
+                s.tiles.every(tile => s.hits.has(`${tile.x},${tile.y}`)))
+            .length;
+        text = `${ship.name} x${ship.used} `;
+        if (ship.destroyed > 0) {
+            text += `(-${ship.destroyed})`;
+        }
     }
 
     const nameText = scene.add.text(
@@ -1215,23 +1230,52 @@ function drawGrid(scene, startX, startY) {
 }
 
 // Update function to only update existing UI elements
-function updateShipUI(scene, ships, startY, gridStartX, enemyGridX) {
+function updateShipUI(scene, ships, startY, playerGridX, enemyGridX) {
     ships.forEach((ship, index) => {
         if (ship.used > 0) {
             const shipY = startY + SHIP_Y_OFFSET + (index * VERTICAL_SPACING);
             
             // Find existing UI elements for both grids
-            const playerElements = findShipUIElements(scene, ship, shipY, gridStartX);
+            const playerElements = findShipUIElements(scene, ship, shipY, playerGridX);
             const enemyElements = findShipUIElements(scene, ship, shipY, enemyGridX);
 
             // Update player grid UI
             if (playerElements.text) {
-                playerElements.text.setText(`${ship.name} x${ship.used}`);
+                // Count destroyed player ships of this type
+                const playerLostCount = placedShips
+                    .filter(s => s.size === ship.size && 
+                        s.tiles.every(tile => s.hits.has(`${tile.x},${tile.y}`)))
+                    .length;
+                
+                let text = `${ship.name} x${ship.used}`;
+                if (playerLostCount > 0) {
+                    text += ` (-${playerLostCount})`;
+                }
+                playerElements.text.setText(text);
+
+                // Update visual state if all ships of this type are destroyed
+                if (playerLostCount === ship.used) {
+                    playerElements.text.setTint(0x666666);
+                    if (playerElements.graphics) {
+                        playerElements.graphics.clear();
+                        playerElements.graphics.lineStyle(1, 0x666666, 0.5);
+                        playerElements.graphics.strokeRect(
+                            playerGridX,
+                            shipY - RECT_PADDING,
+                            GRID_SIZE * GRID_DIMENSION,
+                            GRID_SIZE + (RECT_PADDING * 2)
+                        );
+                    }
+                }
             }
 
             // Update enemy grid UI
             if (enemyElements.text) {
-                enemyElements.text.setText(`${ship.name} x${ship.used} (-${ship.destroyed})`);
+                let text = `${ship.name} x${ship.used}`;
+                if (ship.destroyed > 0) {
+                    text += ` (-${ship.destroyed})`;
+                }
+                enemyElements.text.setText(text);
                 
                 const isFullyDestroyed = ship.destroyed === ship.used;
                 if (isFullyDestroyed) {
@@ -1266,7 +1310,7 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Update processEnemyShot to better use successful shots
+// Update processEnemyShot to use global grid positions
 function processEnemyShot(scene, startY, gridStartX) {
     if (gameOver) {
         if (DEBUG_MODE) {
@@ -1363,7 +1407,6 @@ function processEnemyShot(scene, startY, gridStartX) {
         const shotIndex = Math.floor(Math.random() * availableShots.length);
         const shot = availableShots[shotIndex];
 
-        // Create explosion or missed shot sprite
         const hitShip = placedShips.find(ship => 
             ship.tiles.some(tile => tile.x === shot.x && tile.y === shot.y)
         );
@@ -1393,6 +1436,10 @@ function processEnemyShot(scene, startY, gridStartX) {
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
                 playerShipsDestroyed++;
+                hitShip.destroyed++;
+
+                // Update UI using global grid positions
+                updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
                 // Remove all tiles of destroyed ship from successful shots
                 enemySuccessfulShots = enemySuccessfulShots.filter(shot => 
@@ -1965,7 +2012,7 @@ function isValidPlayerShipPlacement(x, y, size, isHorizontal, allowAdjacent = fa
 }
 
 // Add handleShot function to process player shots
-function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
+function handleShot(scene, x, y, startX, startY, isHit) {
     if (gameOver || enemyTurn) {
         if (DEBUG_MODE) {
             console.log(gameOver ? 'Game is over, no more shots allowed' : 'Cannot shoot during enemy turn');
@@ -1974,7 +2021,7 @@ function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
     }
 
     if (isHit) {
-        const hitShip = enemyPlacedShips.find(ship => 
+        const hitShip = placedShips.find(ship => 
             ship.tiles.some(tile => tile.x === x && tile.y === y)
         );
 
@@ -1999,22 +2046,13 @@ function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
                 playerShipsDestroyed++;
-                const shipType = ships.find(s => s.size === hitShip.size);
-                if (shipType) {
-                    shipType.destroyed++;
-                    
-                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
-                    const enemyGridX = startX;
-                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
-                    
-                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
+                hitShip.destroyed++;
 
-                    // Check for victory after updating UI
-                    checkVictory(scene, ships);
+                // Update UI using global grid positions
+                updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
-                    // Check for loss after hit
-                    checkPlayerLoss(scene, placedShips);
-                }
+                // Check for victory after updating UI
+                checkVictory(scene, ships);
             }
         }
     } else {
