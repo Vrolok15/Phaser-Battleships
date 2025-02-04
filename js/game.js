@@ -47,6 +47,7 @@ let lastSuccessfulShot = null;
 let firstHitOfSequence = null;  // Track first hit on a ship
 let currentDirection = null;    // Track current firing direction
 let gameOver = false;
+let enemyTurn = false;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -848,6 +849,7 @@ function drawBothGrids(scene, startX1, startX2, startY) {
 
 function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, clearButton, startButton) {
     gameOver = false;
+    enemyTurn = false;
     // First remove only grid lines and highlights, preserving ships and ship UI
     scene.children.list
         .filter(child => {
@@ -948,6 +950,7 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     gameOver = false;
+    enemyTurn = false;
     // Reset destruction counters
     playerShipsDestroyed = 0;
     enemyShipsDestroyed = 0;
@@ -1195,7 +1198,7 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Update processEnemyShot to check for game over
+// Update processEnemyShot to set enemyTurn
 function processEnemyShot(scene, startY, gridStartX) {
     if (gameOver) {
         if (DEBUG_MODE) {
@@ -1204,9 +1207,9 @@ function processEnemyShot(scene, startY, gridStartX) {
         return;
     }
 
+    enemyTurn = true;
     if (DEBUG_MODE) {
         console.log('Enemy turn starting...');
-        console.log(`Damaged ships: ${playerShipsDamaged.size}, Destroyed ships: ${playerShipsDestroyed}`);
     }
 
     let availableShots = [];
@@ -1372,6 +1375,12 @@ function processEnemyShot(scene, startY, gridStartX) {
         }
         checkPlayerLoss(scene, placedShips);
     }
+
+    // On miss, end enemy turn
+    enemyTurn = false;
+    if (DEBUG_MODE) {
+        console.log('Enemy turn ended');
+    }
 }
 
 // Add helper function to check if a shot is valid
@@ -1391,11 +1400,11 @@ function isValidShot(scene, shot, gridStartX, startY) {
     return !hasBeenShot;
 }
 
-// Modify handleShot to trigger enemy shot after player misses
+// Update handleShot to check enemyTurn
 function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
-    if (gameOver) {
+    if (gameOver || enemyTurn) {
         if (DEBUG_MODE) {
-            console.log('Game is over, no more shots allowed');
+            console.log(gameOver ? 'Game is over, no more shots allowed' : 'Cannot shoot during enemy turn');
         }
         return;
     }
@@ -1505,6 +1514,7 @@ function checkPlayerLoss(scene, placedShips) {
 // Add function to show victory screen
 function showVictoryScreen(scene) {
     gameOver = true;
+    enemyTurn = false;
     // Increment win counter
     playerWins++;
 
@@ -1566,6 +1576,7 @@ function showVictoryScreen(scene) {
 // Update showLossScreen to reset game state
 function showLossScreen(scene) {
     gameOver = true;
+    enemyTurn = false;
     // Reset targeting variables
     firstHitOfSequence = null;
     currentDirection = null;
