@@ -334,7 +334,7 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
         fill: '#fff'
     }).setOrigin(0.5);
 
-    // Add water background tiles first
+    // Add water background tiles first (depth: 0)
     for (let x = 0; x < GRID_DIMENSION; x++) {
         for (let y = 0; y < GRID_DIMENSION; y++) {
             const sprite = scene.add.sprite(
@@ -343,12 +343,35 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                 isEnemy ? 'water-dark' : 'water'
             );
             sprite.setDisplaySize(GRID_SIZE, GRID_SIZE);
+            sprite.setDepth(0);
         }
     }
 
-    // Create graphics object for grid lines
+    // Add coordinates (depth: 1)
+    for (let x = 0; x < GRID_DIMENSION; x++) {
+        // Add letters on top
+        scene.add.text(startX + (x * GRID_SIZE) + GRID_SIZE/2, startY - 20, 
+            String.fromCharCode(65 + x), {
+                fontSize: '16px',
+                fill: '#fff'
+            }).setOrigin(0.5).setDepth(1);
+
+        for (let y = 0; y < GRID_DIMENSION; y++) {
+            if (x === 0) {
+                // Add numbers on the left
+                scene.add.text(startX - 20, startY + (y * GRID_SIZE) + GRID_SIZE/2, 
+                    (y + 1).toString(), {
+                        fontSize: '16px',
+                        fill: '#fff'
+                    }).setOrigin(0.5).setDepth(1);
+            }
+        }
+    }
+
+    // Create graphics object for grid lines (depth: 2)
     const graphics = scene.add.graphics();
     graphics.lineStyle(1, 0xffffff);
+    graphics.setDepth(2);  // Set grid lines to highest depth
 
     // Draw vertical lines
     for (let i = 0; i <= GRID_DIMENSION; i++) {
@@ -363,29 +386,9 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
     }
     graphics.strokePath();
 
-    // Add coordinates
-    for (let x = 0; x < GRID_DIMENSION; x++) {
-        // Add letters on top
-        scene.add.text(startX + (x * GRID_SIZE) + GRID_SIZE/2, startY - 20, 
-            String.fromCharCode(65 + x), {
-                fontSize: '16px',
-                fill: '#fff'
-            }).setOrigin(0.5);
-
-        for (let y = 0; y < GRID_DIMENSION; y++) {
-            if (x === 0) {
-                // Add numbers on the left
-                scene.add.text(startX - 20, startY + (y * GRID_SIZE) + GRID_SIZE/2, 
-                    (y + 1).toString(), {
-                        fontSize: '16px',
-                        fill: '#fff'
-                    }).setOrigin(0.5);
-            }
-        }
-    }
-
-    // Create container for tile highlights - moved to end to be on top
+    // Create container for tile highlights - moved to end to be on top (depth: 1)
     const highlightGraphics = scene.add.graphics();
+    highlightGraphics.setDepth(1);  // Set highlight below grid lines
 
     // Add interactive zones and hover effects
     for (let x = 0; x < GRID_DIMENSION; x++) {
@@ -1714,17 +1717,17 @@ function checkPlayerLoss(scene, placedShips) {
 function showVictoryScreen(scene) {
     gameOver = true;
     enemyTurn = false;
-    // Increment win counter
     playerWins++;
 
-    // Create semi-transparent background
+    // Create semi-transparent background with high depth
     const overlay = scene.add.rectangle(
         0, 0, config.width, config.height,
         0x000000, 0.7
     );
     overlay.setOrigin(0);
+    overlay.setDepth(10);  // Set high depth for overlay
 
-    // Add victory text
+    // Add victory text with high depth
     const victoryText = scene.add.text(
         config.width/2, 
         config.height/3,
@@ -1734,9 +1737,9 @@ function showVictoryScreen(scene) {
             fill: '#fff',
             fontStyle: 'bold'
         }
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setDepth(11);  // Set even higher depth for text
 
-    // Add score text
+    // Add score text with high depth
     const scoreText = scene.add.text(
         config.width/2,
         config.height/2,
@@ -1746,9 +1749,9 @@ function showVictoryScreen(scene) {
             fill: '#fff',
             align: 'center'
         }
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setDepth(11);
 
-    // Add restart button
+    // Add restart button with high depth
     const buttonWidth = 200;
     const buttonHeight = 50;
     const restartButton = createButton(
@@ -1760,41 +1763,41 @@ function showVictoryScreen(scene) {
         buttonHeight,
         0x3399ff,
         () => {
-            // Remove victory screen elements
             overlay.destroy();
             victoryText.destroy();
             scoreText.destroy();
             restartButton.destroy();
-            
-            // Restart game
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
+    
+    // Set high depth for all button elements
+    restartButton.hitZone.setDepth(11);
+    if (restartButton.graphics) restartButton.graphics.setDepth(11);
+    if (restartButton.text) restartButton.text.setDepth(11);
 
     // Play win sound
     winSound.play();
 }
 
-// Update showLossScreen to reset game state
+// Update showLossScreen to set higher depth for overlay elements
 function showLossScreen(scene) {
     gameOver = true;
     enemyTurn = false;
-    // Reset targeting variables
     firstHitOfSequence = null;
     currentDirection = null;
     lastSuccessfulShot = null;
-    
-    // Increment computer win counter
     computerWins++;
 
-    // Create semi-transparent background
+    // Create semi-transparent background with high depth
     const overlay = scene.add.rectangle(
         0, 0, config.width, config.height,
         0x000000, 0.7
     );
     overlay.setOrigin(0);
+    overlay.setDepth(10);  // Set high depth for overlay
 
-    // Add loss text
+    // Add loss text with high depth
     const lossText = scene.add.text(
         config.width/2, 
         config.height/3,
@@ -1804,9 +1807,9 @@ function showLossScreen(scene) {
             fill: '#ff0000',
             fontStyle: 'bold'
         }
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setDepth(11);  // Set even higher depth for text
 
-    // Add score text
+    // Add score text with high depth
     const scoreText = scene.add.text(
         config.width/2,
         config.height/2,
@@ -1816,9 +1819,9 @@ function showLossScreen(scene) {
             fill: '#fff',
             align: 'center'
         }
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setDepth(11);
 
-    // Add restart button
+    // Add restart button with high depth
     const buttonWidth = 200;
     const buttonHeight = 50;
     const restartButton = createButton(
@@ -1830,16 +1833,18 @@ function showLossScreen(scene) {
         buttonHeight,
         0xff3333,
         () => {
-            // Remove loss screen elements
             overlay.destroy();
             lossText.destroy();
             scoreText.destroy();
             restartButton.destroy();
-            
-            // Restart game
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
+    
+    // Set high depth for all button elements
+    restartButton.hitZone.setDepth(11);
+    if (restartButton.graphics) restartButton.graphics.setDepth(11);
+    if (restartButton.text) restartButton.text.setDepth(11);
 
     // Play game over sound
     gameOverSound.play();
