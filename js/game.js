@@ -46,6 +46,7 @@ let playerShipsDamaged = new Set();
 let lastSuccessfulShot = null;
 let firstHitOfSequence = null;  // Track first hit on a ship
 let currentDirection = null;    // Track current firing direction
+let gameOver = false;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -846,6 +847,7 @@ function drawBothGrids(scene, startX1, startX2, startY) {
 }
 
 function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, clearButton, startButton) {
+    gameOver = false;
     // First remove only grid lines and highlights, preserving ships and ship UI
     scene.children.list
         .filter(child => {
@@ -945,6 +947,7 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
+    gameOver = false;
     // Reset destruction counters
     playerShipsDestroyed = 0;
     enemyShipsDestroyed = 0;
@@ -1194,6 +1197,13 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
 
 // Update processEnemyShot to check for game over
 function processEnemyShot(scene, startY, gridStartX) {
+    if (gameOver) {
+        if (DEBUG_MODE) {
+            console.log('Game is over, no more shots allowed');
+        }
+        return;
+    }
+
     if (DEBUG_MODE) {
         console.log('Enemy turn starting...');
         console.log(`Damaged ships: ${playerShipsDamaged.size}, Destroyed ships: ${playerShipsDestroyed}`);
@@ -1383,6 +1393,13 @@ function isValidShot(scene, shot, gridStartX, startY) {
 
 // Modify handleShot to trigger enemy shot after player misses
 function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
+    if (gameOver) {
+        if (DEBUG_MODE) {
+            console.log('Game is over, no more shots allowed');
+        }
+        return;
+    }
+
     if (isHit) {
         const hitShip = enemyPlacedShips.find(ship => 
             ship.tiles.some(tile => tile.x === x && tile.y === y)
@@ -1487,6 +1504,7 @@ function checkPlayerLoss(scene, placedShips) {
 
 // Add function to show victory screen
 function showVictoryScreen(scene) {
+    gameOver = true;
     // Increment win counter
     playerWins++;
 
@@ -1547,6 +1565,7 @@ function showVictoryScreen(scene) {
 
 // Update showLossScreen to reset game state
 function showLossScreen(scene) {
+    gameOver = true;
     // Reset targeting variables
     firstHitOfSequence = null;
     currentDirection = null;
