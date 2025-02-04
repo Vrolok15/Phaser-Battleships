@@ -62,6 +62,19 @@ let hitSounds = [];
 let missSound = null;
 let lostSound = null;
 let sunkSound = null;
+let clearSound = null;
+
+// Add global variables for game state sounds
+let startSound = null;
+let winSound = null;
+let gameOverSound = null;
+
+// Add global variables for ship placement sounds
+let placeSound = null;
+let removeSound = null;
+
+// Add global variable for hover sound
+let hoverSound = null;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -118,6 +131,7 @@ function createButton(scene, text, x, y, width, height, color, callback, startDi
         if (!isDisabled) {
             drawRect(color);
             buttonText.setTint(color);
+            hoverSound.play();  // Play hover sound
         }
     });
     
@@ -196,6 +210,7 @@ function preload() {
     this.load.audio('start', 'assets/SFX/start.wav');
     this.load.audio('sunk', 'assets/SFX/sunk.wav');
     this.load.audio('win', 'assets/SFX/win.wav');
+    this.load.audio('hover', 'assets/SFX/hover.wav');  // Lower volume for hover
 }
 
 
@@ -268,6 +283,15 @@ function create() {
     missSound = this.sound.add('miss', { volume: 0.4 });
     lostSound = this.sound.add('lost', { volume: 0.5 });
     sunkSound = this.sound.add('sunk', { volume: 0.5 });
+    clearSound = this.sound.add('clear', { volume: 0.4 });
+    placeSound = this.sound.add('place', { volume: 0.4 });
+    removeSound = this.sound.add('remove', { volume: 0.4 });
+    hoverSound = this.sound.add('hover', { volume: 0.2 });  // Lower volume for hover
+    
+    // Add game state sounds
+    startSound = this.sound.add('start', { volume: 0.5 });
+    winSound = this.sound.add('win', { volume: 0.6 });
+    gameOverSound = this.sound.add('game-over', { volume: 0.6 });
 
     // Set global grid positions
     playerGridX = startX1;
@@ -382,6 +406,7 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                         GRID_SIZE,
                         GRID_SIZE
                     );
+                    hoverSound.play();  // Play hover sound
                 } else if (!gameStarted) {
                     if (followingSprite && selectedShip) {
                         const isHorizontal = currentRotation % 180 === 0;
@@ -460,6 +485,13 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
 
             // Modify the click handler to update highlight after placement
             tileZone.on('pointerdown', (pointer) => {
+                if (!isEnemy && followingSprite && !gameStarted) {
+                    const isValid = tryPlaceShip(scene, x, y, startX, startY);
+                    if (isValid) {
+                        // Play place sound on successful placement
+                        placeSound.play();
+                    }
+                }
                 if (!isEnemy) {
                     if (pointer.leftButtonDown()) {
                         if (followingSprite && selectedShip) {
@@ -650,6 +682,7 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
                 drawRect(0x66ff66); // Green highlight
                 sprite.setTint(0x66ff66); // Highlight ship sprite
                 nameText.setTint(0x66ff66); // Highlight text
+                hoverSound.play();  // Play hover sound
                 
                 // Hide following sprite when hovering over a different ship
                 if (followingSprite && (!selectedShip || selectedShip.index !== index)) {
@@ -701,6 +734,13 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
             sprite.setTint(0x666666);
             nameText.setTint(0x666666);
         }
+
+        sprite.on('pointerover', () => {
+            if (!gameStarted && ship.amount > 0) {
+                sprite.setTint(0x00ff00);
+                hoverSound.play();  // Play hover sound
+            }
+        });
     });
 
     // Listen for shipPlaced event to update UI
@@ -885,9 +925,23 @@ function createShipSelection(scene, gridStartX, gridStartY, startY) {
 }
 
 function handleClearClick(scene, startY, gridStartX, gridStartY, startButton) {
-    // Remove all placed ships
-    placedShips.forEach(ship => ship.sprite.destroy());
+    // Play clear sound
+    clearSound.play();
+
+    // Clear all placed ships and play remove sound for each
+    placedShips.forEach(ship => {
+        ship.sprite.destroy();
+        removeSound.play();
+        const originalShip = ships.find(s => s.size === ship.size);
+        if (originalShip) {
+            originalShip.amount++;
+            originalShip.used--;
+        }
+    });
     placedShips = [];
+
+    // Update ship UI
+    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
     // Reset ship inventory
     ships.forEach((ship, index) => {
@@ -1049,6 +1103,9 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
         0x3399ff,
         () => handleRestartClick(scene, startY, gridStartX, gridStartY)
     );
+
+    // Play start sound
+    startSound.play();
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
@@ -1475,6 +1532,11 @@ function processEnemyShot(scene, startY, gridStartX) {
                 playerShipsDestroyed++;
                 hitShip.destroyed++;
 
+                // Play lost sound when player ship is destroyed
+                scene.time.delayedCall(400, () => {
+                    lostSound.play();
+                });
+
                 // Update UI using global grid positions
                 updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
@@ -1545,7 +1607,7 @@ function isValidShot(scene, shot, gridStartX, startY) {
     return !hasBeenShot;
 }
 
-// Update placeShipOnGrid to add hits tracking
+// Update placeShipOnGrid to play place sound
 function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
     const isHorizontal = ship.rotation % 180 === 0;
     const x = ship.tiles[0].x;
@@ -1560,12 +1622,17 @@ function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
     shipSprite.setDisplaySize(GRID_SIZE * ship.size, GRID_SIZE);
     shipSprite.setAngle(ship.rotation);
 
+    // Play place sound only for player ships
+    if (!isEnemy) {
+        placeSound.play();
+    }
+
     return {
         sprite: shipSprite,
         tiles: ship.tiles,
         size: ship.size,
         rotation: ship.rotation,
-        hits: new Set() // Add hits tracking
+        hits: new Set()
     };
 }
 
@@ -1649,6 +1716,9 @@ function showVictoryScreen(scene) {
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
+
+    // Play win sound
+    winSound.play();
 }
 
 // Update showLossScreen to reset game state
@@ -1716,6 +1786,9 @@ function showLossScreen(scene) {
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
+
+    // Play game over sound
+    gameOverSound.play();
 }
 
 // Add function to get unshot neighbor tiles
@@ -2132,4 +2205,114 @@ function handleShot(scene, x, y, startX, startY, isHit) {
         // After player misses, enemy gets a turn
         processEnemyShot(scene, startY, playerGridX);
     }
+}
+
+// Add tryPlaceShip function to validate and execute ship placement
+function tryPlaceShip(scene, x, y, startX, startY) {
+    if (!followingSprite || !selectedShip) {
+        return false;
+    }
+
+    const isHorizontal = currentRotation % 180 === 0;
+    const shipLength = selectedShip.size;
+    
+    // Check if ship fits within grid bounds
+    const fitsHorizontally = x + shipLength <= GRID_DIMENSION;
+    const fitsVertically = y + shipLength <= GRID_DIMENSION;
+    const canPlace = isHorizontal ? fitsHorizontally : fitsVertically;
+
+    // Check for collisions with other ships
+    const wouldCollide = checkShipCollision(x, y, shipLength, isHorizontal);
+
+    if (canPlace && !wouldCollide) {
+        // Calculate ship position
+        const shipX = startX + (x * GRID_SIZE) + (isHorizontal ? (shipLength * GRID_SIZE) / 2 : GRID_SIZE/2);
+        const shipY = startY + (y * GRID_SIZE) + (!isHorizontal ? (shipLength * GRID_SIZE) / 2 : GRID_SIZE/2);
+
+        // Create ship sprite
+        const placedShip = scene.add.sprite(shipX, shipY, `ship-${selectedShip.size}`);
+        placedShip.setDisplaySize(GRID_SIZE * shipLength, GRID_SIZE);
+        placedShip.setAngle(currentRotation);
+
+        // Store ship tiles
+        const shipTiles = [];
+        for (let i = 0; i < shipLength; i++) {
+            if (isHorizontal) {
+                shipTiles.push({x: x + i, y: y});
+            } else {
+                shipTiles.push({x: x, y: y + i});
+            }
+        }
+
+        // Add to placed ships
+        placedShips.push({
+            sprite: placedShip,
+            tiles: shipTiles,
+            size: shipLength,
+            rotation: currentRotation,
+            hits: new Set()
+        });
+
+        // Update ship inventory
+        const placedShipIndex = selectedShip.index;
+        ships[placedShipIndex].amount--;
+        ships[placedShipIndex].used++;
+
+        // Clean up following sprite if no more ships of this type
+        if (ships[placedShipIndex].amount <= 0) {
+            followingSprite.destroy();
+            followingSprite = null;
+            selectedShip = null;
+            currentRotation = 0;
+        }
+
+        // Emit event for UI update
+        scene.events.emit('shipPlaced', placedShipIndex);
+        return true;
+    }
+
+    return false;
+} 
+
+// Add checkShipCollision function to validate ship placement
+function checkShipCollision(x, y, size, isHorizontal) {
+    // Check each tile the ship would occupy
+    for (let i = 0; i < size; i++) {
+        const checkX = x + (isHorizontal ? i : 0);
+        const checkY = y + (!isHorizontal ? i : 0);
+
+        // Check if any existing ship occupies this tile
+        if (placedShips.some(ship => 
+            ship.tiles.some(tile => 
+                tile.x === checkX && tile.y === checkY
+            )
+        )) {
+            return true;
+        }
+
+        // Check adjacent tiles (diagonals included)
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const adjacentX = checkX + dx;
+                const adjacentY = checkY + dy;
+                
+                // Skip if outside grid
+                if (adjacentX < 0 || adjacentX >= GRID_DIMENSION || 
+                    adjacentY < 0 || adjacentY >= GRID_DIMENSION) {
+                    continue;
+                }
+
+                // Check if any ship occupies adjacent tile
+                if (placedShips.some(ship => 
+                    ship.tiles.some(tile => 
+                        tile.x === adjacentX && tile.y === adjacentY
+                    )
+                )) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 } 
