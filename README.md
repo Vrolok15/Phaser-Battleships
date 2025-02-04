@@ -16,4 +16,5 @@ Good luck!
 ## Credits
 - Naval battle assets by Molly "Cougarmint" Willits ([OpenGameArt](https://opengameart.org/content/naval-battle-assets-pack)) - CC-BY 3.0
 - Explosion and water sprites from [Dungeon Crawl Stone Soup](https://crawl.develz.org/)
+- The Essential Retro Video Game Sound Effects Collection by [SubspaceAudio](https://opengameart.org/content/512-sound-effects-8-bit-style)
 - Built with [Phaser 3](https://phaser.io/)

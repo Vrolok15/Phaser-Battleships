@@ -57,6 +57,12 @@ let currentTargetShip = null;   // Track the ship we're currently targeting
 let playerGridX = null;
 let enemyGridX = null;
 
+// Add global variables for sounds
+let hitSounds = [];
+let missSound = null;
+let lostSound = null;
+let sunkSound = null;
+
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
     let isDisabled = startDisabled;
@@ -176,7 +182,22 @@ function preload() {
     this.load.image('missed', 'assets/missed.png');
     this.load.image('missed-dark', 'assets/missed-dark.png');
     this.load.image('explosion', 'assets/explosion.png');
+
+    // Load sound effects
+    this.load.audio('clear', 'assets/SFX/clear.wav');
+    this.load.audio('hit', 'assets/SFX/explosion.wav');
+    this.load.audio('hit2', 'assets/SFX/explosion2.wav');
+    this.load.audio('hit3', 'assets/SFX/explosion3.wav');
+    this.load.audio('game-over', 'assets/SFX/game-over.wav');
+    this.load.audio('lost', 'assets/SFX/lost.wav');
+    this.load.audio('miss', 'assets/SFX/miss.wav');
+    this.load.audio('place', 'assets/SFX/place.wav');
+    this.load.audio('remove', 'assets/SFX/remove.wav');
+    this.load.audio('start', 'assets/SFX/start.wav');
+    this.load.audio('sunk', 'assets/SFX/sunk.wav');
+    this.load.audio('win', 'assets/SFX/win.wav');
 }
+
 
 function create() {
     // Add debug info to check if assets loaded
@@ -237,6 +258,16 @@ function create() {
             }
         }
     }.bind(this));
+
+    // Initialize sounds
+    hitSounds = [
+        this.sound.add('hit', { volume: 0.4 }),
+        this.sound.add('hit2', { volume: 0.4 }),
+        this.sound.add('hit3', { volume: 0.4 })
+    ];
+    missSound = this.sound.add('miss', { volume: 0.4 });
+    lostSound = this.sound.add('lost', { volume: 0.5 });
+    sunkSound = this.sound.add('sunk', { volume: 0.5 });
 
     // Set global grid positions
     playerGridX = startX1;
@@ -1310,7 +1341,7 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Update processEnemyShot to use global grid positions
+// Update processEnemyShot to play sounds with delay
 function processEnemyShot(scene, startY, gridStartX) {
     if (gameOver) {
         if (DEBUG_MODE) {
@@ -1412,6 +1443,12 @@ function processEnemyShot(scene, startY, gridStartX) {
         );
 
         if (hitShip) {
+            // Play random hit sound with delay
+            scene.time.delayedCall(200, () => {
+                const randomHitSound = hitSounds[Math.floor(Math.random() * hitSounds.length)];
+                randomHitSound.play();
+            });
+
             // Hit - Add explosion sprite
             const explosion = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
@@ -1468,6 +1505,11 @@ function processEnemyShot(scene, startY, gridStartX) {
                 processEnemyShot(scene, startY, gridStartX);
             });
         } else {
+            // Play miss sound with delay
+            scene.time.delayedCall(200, () => {
+                missSound.play();
+            });
+
             // Miss - Add missed shot sprite
             const missedShot = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
@@ -2021,12 +2063,19 @@ function handleShot(scene, x, y, startX, startY, isHit) {
     }
 
     if (isHit) {
-        const hitShip = placedShips.find(ship => 
+        // Check enemy ships instead of player ships
+        const hitShip = enemyPlacedShips.find(ship => 
             ship.tiles.some(tile => tile.x === x && tile.y === y)
         );
 
         if (hitShip) {
-            // Hit - Add explosion sprite
+            // Play random hit sound with delay
+            scene.time.delayedCall(200, () => {
+                const randomHitSound = hitSounds[Math.floor(Math.random() * hitSounds.length)];
+                randomHitSound.play();
+            });
+
+            // Add explosion sprite
             const explosion = scene.add.sprite(
                 startX + (x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (y * GRID_SIZE) + GRID_SIZE/2,
@@ -2045,18 +2094,33 @@ function handleShot(scene, x, y, startX, startY, isHit) {
 
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
-                playerShipsDestroyed++;
-                hitShip.destroyed++;
+                enemyShipsDestroyed++;  // Increment enemy ships destroyed instead of player ships
+                
+                // Find matching ship type and update destroyed count
+                const shipType = ships.find(s => s.size === hitShip.size);
+                if (shipType) {
+                    shipType.destroyed++;
+                    
+                    // Update UI using global grid positions
+                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
-                // Update UI using global grid positions
-                updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
+                    // Check for victory after updating UI
+                    checkVictory(scene, ships);
+                }
 
-                // Check for victory after updating UI
-                checkVictory(scene, ships);
+                // Play sunk sound when enemy ship is destroyed
+                scene.time.delayedCall(400, () => {
+                    sunkSound.play();
+                });
             }
         }
     } else {
-        // Missed shot code
+        // Play miss sound with delay
+        scene.time.delayedCall(200, () => {
+            missSound.play();
+        });
+
+        // Add missed shot sprite
         const missedShot = scene.add.sprite(
             startX + (x * GRID_SIZE) + GRID_SIZE/2,
             startY + (y * GRID_SIZE) + GRID_SIZE/2,
