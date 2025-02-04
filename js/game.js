@@ -1423,13 +1423,6 @@ function updateShipUI(scene, ships, startY, playerGridX, enemyGridX) {
                     enemyElements.text.setTint(0x666666);
                     if (enemyElements.graphics) {
                         enemyElements.graphics.clear();
-                        enemyElements.graphics.lineStyle(1, 0x666666, 0.5);
-                        enemyElements.graphics.strokeRect(
-                            enemyGridX,
-                            shipY - RECT_PADDING,
-                            GRID_SIZE * GRID_DIMENSION,
-                            GRID_SIZE + (RECT_PADDING * 2)
-                        );
                     }
                 }
             }
