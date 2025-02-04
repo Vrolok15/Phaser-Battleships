@@ -49,6 +49,10 @@ let currentDirection = null;    // Track current firing direction
 let gameOver = false;
 let enemyTurn = false;
 
+// Add global variables for tracking hits
+let enemySuccessfulShots = [];  // Array to track all successful hits
+let currentTargetShip = null;   // Track the ship we're currently targeting
+
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
     let isDisabled = startDisabled;
@@ -907,6 +911,8 @@ function drawBothGrids(scene, startX1, startX2, startY) {
 }
 
 function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, randomClearButton, startButton) {
+    enemySuccessfulShots = [];  // Reset successful shots
+    currentTargetShip = null;   // Reset current target
     gameOver = false;
     enemyTurn = false;
     // First remove only grid lines and highlights, preserving ships and ship UI
@@ -1009,6 +1015,8 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
+    enemySuccessfulShots = [];  // Reset successful shots
+    currentTargetShip = null;   // Reset current target
     gameOver = false;
     enemyTurn = false;
     // Reset destruction counters
@@ -1258,7 +1266,7 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Update processEnemyShot to set enemyTurn
+// Update processEnemyShot to better use successful shots
 function processEnemyShot(scene, startY, gridStartX) {
     if (gameOver) {
         if (DEBUG_MODE) {
@@ -1280,24 +1288,16 @@ function processEnemyShot(scene, startY, gridStartX) {
             console.log('Hunting mode active');
         }
 
+        // First try to continue from last successful shot
         if (lastSuccessfulShot) {
             if (!firstHitOfSequence) {
-                // This is our first hit on a ship
                 firstHitOfSequence = {...lastSuccessfulShot};
                 availableShots = getUnshotNeighbors(scene, lastSuccessfulShot.x, lastSuccessfulShot.y, gridStartX, startY);
-                if (DEBUG_MODE) {
-                    console.log(`First hit - checking neighbors. Found ${availableShots.length} possible shots`);
-                }
             } else if (!currentDirection && lastSuccessfulShot !== firstHitOfSequence) {
-                // This is our second hit, establish direction
                 currentDirection = {
                     x: lastSuccessfulShot.x - firstHitOfSequence.x,
                     y: lastSuccessfulShot.y - firstHitOfSequence.y
                 };
-                if (DEBUG_MODE) {
-                    console.log(`Established direction: (${currentDirection.x}, ${currentDirection.y})`);
-                }
-                // Try next shot in this direction
                 const nextShot = {
                     x: lastSuccessfulShot.x + currentDirection.x,
                     y: lastSuccessfulShot.y + currentDirection.y
@@ -1306,7 +1306,6 @@ function processEnemyShot(scene, startY, gridStartX) {
                     availableShots = [nextShot];
                 }
             } else if (currentDirection) {
-                // Try next shot in current direction
                 const nextShot = {
                     x: lastSuccessfulShot.x + currentDirection.x,
                     y: lastSuccessfulShot.y + currentDirection.y
@@ -1315,7 +1314,6 @@ function processEnemyShot(scene, startY, gridStartX) {
                 if (isValidShot(scene, nextShot, gridStartX, startY)) {
                     availableShots = [nextShot];
                 } else {
-                    // If blocked, try opposite direction from first hit
                     currentDirection = {
                         x: -currentDirection.x,
                         y: -currentDirection.y
@@ -1332,13 +1330,26 @@ function processEnemyShot(scene, startY, gridStartX) {
                 }
             }
         }
+
+        // If no shots available, try previous successful hits
+        if (availableShots.length === 0 && enemySuccessfulShots.length > 0) {
+            // Start from most recent successful hit
+            for (let i = enemySuccessfulShots.length - 1; i >= 0; i--) {
+                const previousHit = enemySuccessfulShots[i];
+                const neighbors = getUnshotNeighbors(scene, previousHit.x, previousHit.y, gridStartX, startY);
+                if (neighbors.length > 0) {
+                    availableShots = neighbors;
+                    firstHitOfSequence = previousHit;
+                    currentDirection = null;
+                    lastSuccessfulShot = previousHit;
+                    break;
+                }
+            }
+        }
     }
 
-    // If no directional shots available, get random shots
+    // If no targeted shots available, get random shots
     if (availableShots.length === 0) {
-        if (DEBUG_MODE) {
-            console.log('No targeted shots available, switching to random targeting');
-        }
         for (let x = 0; x < GRID_DIMENSION; x++) {
             for (let y = 0; y < GRID_DIMENSION; y++) {
                 if (isValidShot(scene, {x, y}, gridStartX, startY)) {
@@ -1346,29 +1357,19 @@ function processEnemyShot(scene, startY, gridStartX) {
                 }
             }
         }
-        if (DEBUG_MODE) {
-            console.log(`Found ${availableShots.length} possible random shots`);
-        }
     }
 
     if (availableShots.length > 0) {
         const shotIndex = Math.floor(Math.random() * availableShots.length);
         const shot = availableShots[shotIndex];
 
-        if (DEBUG_MODE) {
-            console.log(`Taking shot at: (${shot.x}, ${shot.y})`);
-        }
-
+        // Create explosion or missed shot sprite
         const hitShip = placedShips.find(ship => 
             ship.tiles.some(tile => tile.x === shot.x && tile.y === shot.y)
         );
 
         if (hitShip) {
-            if (DEBUG_MODE) {
-                console.log(`Hit confirmed! Ship size: ${hitShip.size}`);
-            }
-
-            lastSuccessfulShot = {...shot};
+            // Hit - Add explosion sprite
             const explosion = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
@@ -1377,6 +1378,11 @@ function processEnemyShot(scene, startY, gridStartX) {
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
 
+            // Track successful shot
+            enemySuccessfulShots.push({...shot});
+            lastSuccessfulShot = {...shot};
+
+            hitShip.hits = hitShip.hits || new Set();
             hitShip.hits.add(`${shot.x},${shot.y}`);
             playerShipsDamaged.add(hitShip);
 
@@ -1387,40 +1393,35 @@ function processEnemyShot(scene, startY, gridStartX) {
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
                 playerShipsDestroyed++;
+
+                // Remove all tiles of destroyed ship from successful shots
+                enemySuccessfulShots = enemySuccessfulShots.filter(shot => 
+                    !hitShip.tiles.some(tile => 
+                        tile.x === shot.x && tile.y === shot.y
+                    )
+                );
+
                 // Reset targeting when ship is destroyed
                 firstHitOfSequence = null;
                 currentDirection = null;
+
                 if (DEBUG_MODE) {
-                    console.log('Ship destroyed - resetting targeting');
+                    console.log('Ship destroyed - removed tiles from successful shots');
                 }
 
-                // Check if all player ships are destroyed
-                if (playerShipsDestroyed === placedShips.length) {
-                    if (DEBUG_MODE) {
-                        console.log('All player ships destroyed - game over');
-                    }
+                // Check for game over
+                if (playerShipsDestroyed >= placedShips.length) {
                     showLossScreen(scene);
-                    return;  // Stop processing more shots
+                    return;
                 }
             }
 
-            if (DEBUG_MODE) {
-                console.log('Hit successful - taking another shot after delay');
-            }
+            // Continue shooting
             scene.time.delayedCall(600, () => {
                 processEnemyShot(scene, startY, gridStartX);
             });
         } else {
-            if (DEBUG_MODE) {
-                console.log('Shot missed');
-            }
-            // On miss, if we don't have a second hit yet, clear first hit
-            if (firstHitOfSequence && !currentDirection) {
-                firstHitOfSequence = null;
-                if (DEBUG_MODE) {
-                    console.log('Miss on potential second hit - resetting first hit');
-                }
-            }
+            // Miss - Add missed shot sprite
             const missedShot = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
@@ -1428,18 +1429,13 @@ function processEnemyShot(scene, startY, gridStartX) {
             );
             missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
             missedShot.setData('shotMarker', true);
-        }
-    } else {
-        if (DEBUG_MODE) {
-            console.log('No available shots - game should be over');
-        }
-        checkPlayerLoss(scene, placedShips);
-    }
 
-    // On miss, end enemy turn
-    enemyTurn = false;
-    if (DEBUG_MODE) {
-        console.log('Enemy turn ended');
+            // On miss, end enemy turn
+            enemyTurn = false;
+            if (DEBUG_MODE) {
+                console.log('Enemy turn ended');
+            }
+        }
     }
 }
 
@@ -1458,73 +1454,6 @@ function isValidShot(scene, shot, gridStartX, startY) {
     );
 
     return !hasBeenShot;
-}
-
-// Update handleShot to check enemyTurn
-function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
-    if (gameOver || enemyTurn) {
-        if (DEBUG_MODE) {
-            console.log(gameOver ? 'Game is over, no more shots allowed' : 'Cannot shoot during enemy turn');
-        }
-        return;
-    }
-
-    if (isHit) {
-        const hitShip = enemyPlacedShips.find(ship => 
-            ship.tiles.some(tile => tile.x === x && tile.y === y)
-        );
-
-        if (hitShip) {
-            // Hit - Add explosion sprite
-            const explosion = scene.add.sprite(
-                startX + (x * GRID_SIZE) + GRID_SIZE/2,
-                startY + (y * GRID_SIZE) + GRID_SIZE/2,
-                'explosion'
-            );
-            explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
-            explosion.setData('shotMarker', true);
-
-            // Track hit
-            hitShip.hits.add(`${x},${y}`);
-
-            const isDestroyed = hitShip.tiles.every(tile => 
-                hitShip.hits.has(`${tile.x},${tile.y}`)
-            );
-
-            if (isDestroyed) {
-                hitShip.sprite.setTint(0x666666);
-                enemyShipsDestroyed++;
-                const shipType = ships.find(s => s.size === hitShip.size);
-                if (shipType) {
-                    shipType.destroyed++;
-                    
-                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
-                    const enemyGridX = startX;
-                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
-                    
-                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
-
-                    // Check for victory after updating UI
-                    checkVictory(scene, ships);
-
-                    // Check for loss after hit
-                    checkPlayerLoss(scene, placedShips);
-                }
-            }
-        }
-    } else {
-        // Missed shot code
-        const missedShot = scene.add.sprite(
-            startX + (x * GRID_SIZE) + GRID_SIZE/2,
-            startY + (y * GRID_SIZE) + GRID_SIZE/2,
-            'missed-dark'
-        );
-        missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
-        missedShot.setData('shotMarker', true);
-
-        // After player misses, enemy gets a turn
-        processEnemyShot(scene, startY, playerGridX);
-    }
 }
 
 // Update placeShipOnGrid to add hits tracking
@@ -2033,4 +1962,72 @@ function isValidPlayerShipPlacement(x, y, size, isHorizontal, allowAdjacent = fa
     }
 
     return true;
+}
+
+// Add handleShot function to process player shots
+function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
+    if (gameOver || enemyTurn) {
+        if (DEBUG_MODE) {
+            console.log(gameOver ? 'Game is over, no more shots allowed' : 'Cannot shoot during enemy turn');
+        }
+        return;
+    }
+
+    if (isHit) {
+        const hitShip = enemyPlacedShips.find(ship => 
+            ship.tiles.some(tile => tile.x === x && tile.y === y)
+        );
+
+        if (hitShip) {
+            // Hit - Add explosion sprite
+            const explosion = scene.add.sprite(
+                startX + (x * GRID_SIZE) + GRID_SIZE/2,
+                startY + (y * GRID_SIZE) + GRID_SIZE/2,
+                'explosion'
+            );
+            explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
+            explosion.setData('shotMarker', true);
+
+            // Track hit
+            hitShip.hits = hitShip.hits || new Set();
+            hitShip.hits.add(`${x},${y}`);
+
+            const isDestroyed = hitShip.tiles.every(tile => 
+                hitShip.hits.has(`${tile.x},${tile.y}`)
+            );
+
+            if (isDestroyed) {
+                hitShip.sprite.setTint(0x666666);
+                playerShipsDestroyed++;
+                const shipType = ships.find(s => s.size === hitShip.size);
+                if (shipType) {
+                    shipType.destroyed++;
+                    
+                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
+                    const enemyGridX = startX;
+                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
+                    
+                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
+
+                    // Check for victory after updating UI
+                    checkVictory(scene, ships);
+
+                    // Check for loss after hit
+                    checkPlayerLoss(scene, placedShips);
+                }
+            }
+        }
+    } else {
+        // Missed shot code
+        const missedShot = scene.add.sprite(
+            startX + (x * GRID_SIZE) + GRID_SIZE/2,
+            startY + (y * GRID_SIZE) + GRID_SIZE/2,
+            'missed-dark'
+        );
+        missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
+        missedShot.setData('shotMarker', true);
+
+        // After player misses, enemy gets a turn
+        processEnemyShot(scene, startY, playerGridX);
+    }
 } 
