@@ -28,7 +28,7 @@ let placedShips = []; // Array to track placed ships' positions
 let gameStarted = false;
 
 // Add to global variables at the top
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
 const GRID_SIZE = 32;
 const GRID_DIMENSION = 10;
 const GRID_SPACING = 40;
@@ -75,6 +75,12 @@ let removeSound = null;
 
 // Add global variable for hover sound
 let hoverSound = null;
+
+// Add global variables for shot tracking
+let playerShotCount = 0;
+let enemyShotCount = 0;
+let playerShotText = null;
+let enemyShotText = null;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -296,6 +302,29 @@ function create() {
     // Set global grid positions
     playerGridX = startX1;
     enemyGridX = startX2;
+
+    // Add shot counters below grids (initially invisible)
+    const counterY = startY + (GRID_DIMENSION * GRID_SIZE) + 20;
+    
+    enemyShotText = this.add.text(
+        startX1 + (GRID_SIZE * GRID_DIMENSION) / 2,
+        counterY,
+        'Enemy shots: 0',
+        {
+            fontSize: '18px',
+            fill: '#fff'
+        }
+    ).setOrigin(0.5).setVisible(false);  // Initially invisible
+
+    playerShotText = this.add.text(
+        startX2 + (GRID_SIZE * GRID_DIMENSION) / 2,
+        counterY,
+        'Player shots: 0',
+        {
+            fontSize: '18px',
+            fill: '#fff'
+        }
+    ).setOrigin(0.5).setVisible(false);  // Initially invisible
 }
 
 function createGrid(scene, startX, startY, title, isEnemy = false) {
@@ -489,7 +518,9 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                     const isValid = tryPlaceShip(scene, x, y, startX, startY);
                     if (isValid) {
                         // Play place sound on successful placement
-                        placeSound.play();
+                        scene.time.delayedCall(100, () => {
+                            placeSound.play();
+                        });
                     }
                 }
                 if (!isEnemy) {
@@ -958,6 +989,12 @@ function handleClearClick(scene, startY, gridStartX, gridStartY, startButton) {
     selectedShip = null;
     currentRotation = 0;
     startButton.disable();
+
+    // Reset shot counters
+    playerShotCount = 0;
+    enemyShotCount = 0;
+    if (playerShotText) playerShotText.setText('Player shots: 0');
+    if (enemyShotText) enemyShotText.setText('Enemy shots: 0');
 }
 
 // Update drawBothGrids function to remove tile creation
@@ -1001,6 +1038,7 @@ function drawBothGrids(scene, startX1, startX2, startY) {
     });
 }
 
+// Update handleStartClick to show counters
 function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, buttonWidth, buttonHeight, randomClearButton, startButton) {
     enemySuccessfulShots = [];  // Reset successful shots
     currentTargetShip = null;   // Reset current target
@@ -1106,8 +1144,13 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 
     // Play start sound
     startSound.play();
+
+    // Show shot counters
+    playerShotText.setVisible(true);
+    enemyShotText.setVisible(true);
 }
 
+// Update handleRestartClick to hide counters
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     enemySuccessfulShots = [];  // Reset successful shots
     currentTargetShip = null;   // Reset current target
@@ -1179,6 +1222,16 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
 
     // Re-enable grid interaction
     enableGridInteraction(scene);
+
+    // Hide shot counters
+    playerShotText.setVisible(false);
+    enemyShotText.setVisible(false);
+
+    // Reset shot counters
+    playerShotCount = 0;
+    enemyShotCount = 0;
+    playerShotText.setText('Player shots: 0');
+    enemyShotText.setText('Enemy shots: 0');
 }
 
 // Update recreateShipUI to add identifiers
@@ -1506,7 +1559,7 @@ function processEnemyShot(scene, startY, gridStartX) {
                 randomHitSound.play();
             });
 
-            // Hit - Add explosion sprite
+            // Hit - Add explosion sprite with 0.8 alpha
             const explosion = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
@@ -1514,6 +1567,7 @@ function processEnemyShot(scene, startY, gridStartX) {
             );
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
+            explosion.setAlpha(0.8);  // Set explosion alpha to 0.8
 
             // Track successful shot
             enemySuccessfulShots.push({...shot});
@@ -1588,6 +1642,10 @@ function processEnemyShot(scene, startY, gridStartX) {
             }
         }
     }
+
+    // Increment enemy shot counter
+    enemyShotCount++;
+    enemyShotText.setText(`Enemy shots: ${enemyShotCount}`);
 }
 
 // Add helper function to check if a shot is valid
@@ -1624,8 +1682,11 @@ function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
 
     // Play place sound only for player ships
     if (!isEnemy) {
-        placeSound.play();
+        scene.time.delayedCall(100, () => {
+            placeSound.play();
+        });
     }
+
 
     return {
         sprite: shipSprite,
@@ -1850,7 +1911,7 @@ function splitSpace(space, minSize) {
     return spaces;
 }
 
-// Update placeEnemyShipsRandomly to allow adjacent placement
+// Update placeEnemyShipsRandomly to handle ship visibility correctly
 function placeEnemyShipsRandomly(scene, enemyGridX, gridStartY, playerShips) {
     enemyPlacedShips = [];
     
@@ -1917,12 +1978,8 @@ function placeEnemyShipsRandomly(scene, enemyGridX, gridStartY, playerShips) {
                     rotation: ship.rotation
                 }, enemyGridX, gridStartY, true);
 
-                // Make ships semi-transparent only in debug mode
-                if (DEBUG_MODE) {
-                    placedShip.sprite.setAlpha(0.5);
-                } else {
-                    placedShip.sprite.setAlpha(0);
-                }
+                // Always set alpha to 0 initially (completely invisible)
+                placedShip.sprite.setAlpha(0);
 
                 enemyPlacedShips.push(placedShip);
                 placed = true;
@@ -2135,8 +2192,11 @@ function handleShot(scene, x, y, startX, startY, isHit) {
         return;
     }
 
+    // Increment player shot counter
+    playerShotCount++;
+    playerShotText.setText(`Player shots: ${playerShotCount}`);
+
     if (isHit) {
-        // Check enemy ships instead of player ships
         const hitShip = enemyPlacedShips.find(ship => 
             ship.tiles.some(tile => tile.x === x && tile.y === y)
         );
@@ -2148,7 +2208,7 @@ function handleShot(scene, x, y, startX, startY, isHit) {
                 randomHitSound.play();
             });
 
-            // Add explosion sprite
+            // Add explosion sprite with 0.8 alpha
             const explosion = scene.add.sprite(
                 startX + (x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (y * GRID_SIZE) + GRID_SIZE/2,
@@ -2156,6 +2216,7 @@ function handleShot(scene, x, y, startX, startY, isHit) {
             );
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
+            explosion.setAlpha(0.8);  // Set explosion alpha to 0.8
 
             // Track hit
             hitShip.hits = hitShip.hits || new Set();
@@ -2166,9 +2227,11 @@ function handleShot(scene, x, y, startX, startY, isHit) {
             );
 
             if (isDestroyed) {
-                hitShip.sprite.setTint(0x666666);
-                enemyShipsDestroyed++;  // Increment enemy ships destroyed instead of player ships
-                
+                // Make ship fully visible and tint it
+                hitShip.sprite.setAlpha(1);
+                hitShip.sprite.setTint(0x999999);
+                enemyShipsDestroyed++;
+
                 // Find matching ship type and update destroyed count
                 const shipType = ships.find(s => s.size === hitShip.size);
                 if (shipType) {
