@@ -40,6 +40,8 @@ let playerWins = 0;
 let computerWins = 0;
 let playerShipsDestroyed = 0;
 let enemyShipsDestroyed = 0;
+let playerShipsDamaged = new Set();
+let lastSuccessfulShot = null;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -942,6 +944,8 @@ function handleRestartClick(scene, startY, gridStartX, gridStartY) {
     // Reset destruction counters
     playerShipsDestroyed = 0;
     enemyShipsDestroyed = 0;
+    playerShipsDamaged = new Set();
+    lastSuccessfulShot = null;
     
     // First remove all graphics and shot markers
     scene.children.list
@@ -1184,22 +1188,32 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Add new function for enemy shots
+// Update processEnemyShot to add delay between shots
 function processEnemyShot(scene, startY, gridStartX) {
-    // Get all possible coordinates
     let availableShots = [];
-    for (let x = 0; x < GRID_DIMENSION; x++) {
-        for (let y = 0; y < GRID_DIMENSION; y++) {
-            // Check if this tile has been shot before
-            const hasBeenShot = scene.children.list.some(child => 
-                child.type === 'Sprite' && 
-                (child.texture.key === 'missed' || child.texture.key === 'explosion') &&
-                child.x === gridStartX + (x * GRID_SIZE) + GRID_SIZE/2 &&
-                child.y === startY + (y * GRID_SIZE) + GRID_SIZE/2
-            );
 
-            if (!hasBeenShot) {
-                availableShots.push({x, y});
+    // Check if we should hunt for damaged ships
+    const shouldHuntDamagedShips = playerShipsDamaged.size > playerShipsDestroyed;
+
+    // If we should hunt and have a last successful shot, prioritize its neighbors
+    if (shouldHuntDamagedShips && lastSuccessfulShot) {
+        availableShots = getUnshotNeighbors(scene, lastSuccessfulShot.x, lastSuccessfulShot.y, gridStartX, startY);
+    }
+
+    // If no neighbors are available or we're not hunting, get all available shots
+    if (availableShots.length === 0) {
+        for (let x = 0; x < GRID_DIMENSION; x++) {
+            for (let y = 0; y < GRID_DIMENSION; y++) {
+                const hasBeenShot = scene.children.list.some(child => 
+                    child.type === 'Sprite' && 
+                    (child.texture.key === 'missed' || child.texture.key === 'explosion') &&
+                    child.x === gridStartX + (x * GRID_SIZE) + GRID_SIZE/2 &&
+                    child.y === startY + (y * GRID_SIZE) + GRID_SIZE/2
+                );
+
+                if (!hasBeenShot) {
+                    availableShots.push({x, y});
+                }
             }
         }
     }
@@ -1215,6 +1229,8 @@ function processEnemyShot(scene, startY, gridStartX) {
         );
 
         if (hitShip) {
+            // Update last successful shot
+            lastSuccessfulShot = shot;
             // Hit - Add explosion sprite
             const explosion = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
@@ -1224,15 +1240,17 @@ function processEnemyShot(scene, startY, gridStartX) {
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
 
-            // Track hit and check if ship is destroyed
+            // Track hit and add ship to damaged set
             hitShip.hits.add(`${shot.x},${shot.y}`);
+            playerShipsDamaged.add(hitShip);
+
             const isDestroyed = hitShip.tiles.every(tile => 
                 hitShip.hits.has(`${tile.x},${tile.y}`)
             );
 
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
-                playerShipsDestroyed++; // Increment counter
+                playerShipsDestroyed++;
                 const shipType = ships.find(s => s.size === hitShip.size);
                 if (shipType) {
                     shipType.destroyed++;
@@ -1250,6 +1268,11 @@ function processEnemyShot(scene, startY, gridStartX) {
                     checkPlayerLoss(scene, placedShips);
                 }
             }
+
+            // Take another shot after a delay
+            scene.time.delayedCall(600, () => {
+                processEnemyShot(scene, startY, gridStartX);
+            });
         } else {
             // Miss - Add missed shot sprite
             const missedShot = scene.add.sprite(
@@ -1280,15 +1303,16 @@ function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
 
-            // Track hit and check if ship is destroyed
+            // Track hit
             hitShip.hits.add(`${x},${y}`);
+
             const isDestroyed = hitShip.tiles.every(tile => 
                 hitShip.hits.has(`${tile.x},${tile.y}`)
             );
 
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
-                enemyShipsDestroyed++; // Increment counter
+                enemyShipsDestroyed++;
                 const shipType = ships.find(s => s.size === hitShip.size);
                 if (shipType) {
                     shipType.destroyed++;
@@ -1484,4 +1508,33 @@ function showLossScreen(scene) {
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
+}
+
+// Add function to get unshot neighbor tiles
+function getUnshotNeighbors(scene, x, y, startX, startY) {
+    const neighbors = [
+        {x: x-1, y: y},   // left
+        {x: x+1, y: y},   // right
+        {x: x, y: y-1},   // up
+        {x: x, y: y+1}    // down
+    ];
+
+    // Filter valid and unshot neighbors
+    return neighbors.filter(pos => {
+        // Check if position is within grid bounds
+        if (pos.x < 0 || pos.x >= GRID_DIMENSION || 
+            pos.y < 0 || pos.y >= GRID_DIMENSION) {
+            return false;
+        }
+
+        // Check if this tile has been shot before
+        const hasBeenShot = scene.children.list.some(child => 
+            child.type === 'Sprite' && 
+            (child.texture.key === 'missed' || child.texture.key === 'explosion') &&
+            child.x === startX + (pos.x * GRID_SIZE) + GRID_SIZE/2 &&
+            child.y === startY + (pos.y * GRID_SIZE) + GRID_SIZE/2
+        );
+
+        return !hasBeenShot;
+    });
 } 
