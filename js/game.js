@@ -154,6 +154,7 @@ function preload() {
     }
 
     // Add new function to handle shots
+    this.load.image('missed', 'assets/missed.png');
     this.load.image('missed-dark', 'assets/missed-dark.png');
     this.load.image('explosion', 'assets/explosion.png');
 }
@@ -443,7 +444,8 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                                     sprite: placedShip,
                                     tiles: shipTiles,
                                     size: shipLength,
-                                    rotation: currentRotation
+                                    rotation: currentRotation,
+                                    hits: new Set()
                                 });
 
                                 const placedShipIndex = selectedShip.index;
@@ -488,7 +490,11 @@ function createGrid(scene, startX, startY, title, isEnemy = false) {
                             ship.tiles.some(tile => tile.x === x && tile.y === y)
                         );
 
-                        handleShot(scene, x, y, startX, startY, hitShip !== undefined);
+                        // Calculate player grid position
+                        const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
+                        const playerGridX = startX - totalGridWidth - GRID_SPACING;
+
+                        handleShot(scene, x, y, startX, startY, hitShip !== undefined, playerGridX);
                     }
                 }
             });
@@ -1172,14 +1178,89 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Modify handleShot function to track hits and update UI
-function handleShot(scene, x, y, startX, startY, isHit) {
+// Add new function for enemy shots
+function processEnemyShot(scene, startY, gridStartX) {
+    // Get all possible coordinates
+    let availableShots = [];
+    for (let x = 0; x < GRID_DIMENSION; x++) {
+        for (let y = 0; y < GRID_DIMENSION; y++) {
+            // Check if this tile has been shot before
+            const hasBeenShot = scene.children.list.some(child => 
+                child.type === 'Sprite' && 
+                (child.texture.key === 'missed' || child.texture.key === 'explosion') &&
+                child.x === gridStartX + (x * GRID_SIZE) + GRID_SIZE/2 &&
+                child.y === startY + (y * GRID_SIZE) + GRID_SIZE/2
+            );
+
+            if (!hasBeenShot) {
+                availableShots.push({x, y});
+            }
+        }
+    }
+
+    if (availableShots.length > 0) {
+        // Pick a random available coordinate
+        const shotIndex = Math.floor(Math.random() * availableShots.length);
+        const shot = availableShots[shotIndex];
+
+        // Check if there's a ship at these coordinates
+        const hitShip = placedShips.find(ship => 
+            ship.tiles.some(tile => tile.x === shot.x && tile.y === shot.y)
+        );
+
+        if (hitShip) {
+            // Hit - Add explosion sprite
+            const explosion = scene.add.sprite(
+                gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
+                startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
+                'explosion'
+            );
+            explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
+            explosion.setData('shotMarker', true);
+
+            // Track hit and check if ship is destroyed
+            hitShip.hits.add(`${shot.x},${shot.y}`);
+            const isDestroyed = hitShip.tiles.every(tile => 
+                hitShip.hits.has(`${tile.x},${tile.y}`)
+            );
+
+            if (isDestroyed) {
+                hitShip.sprite.setTint(0x666666);
+            }
+
+            // Check for loss after hit
+            checkPlayerLoss(scene, placedShips);
+        } else {
+            // Miss - Add missed shot sprite
+            const missedShot = scene.add.sprite(
+                gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
+                startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
+                'missed'
+            );
+            missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
+            missedShot.setData('shotMarker', true);
+        }
+    }
+}
+
+// Modify handleShot to trigger enemy shot after player misses
+function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
     if (isHit) {
         const hitShip = enemyPlacedShips.find(ship => 
             ship.tiles.some(tile => tile.x === x && tile.y === y)
         );
 
         if (hitShip) {
+            // Hit - Add explosion sprite
+            const explosion = scene.add.sprite(
+                startX + (x * GRID_SIZE) + GRID_SIZE/2,
+                startY + (y * GRID_SIZE) + GRID_SIZE/2,
+                'explosion'
+            );
+            explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
+            explosion.setData('shotMarker', true);
+
+            // Track hit and check if ship is destroyed
             hitShip.hits.add(`${x},${y}`);
             const isDestroyed = hitShip.tiles.every(tile => 
                 hitShip.hits.has(`${tile.x},${tile.y}`)
@@ -1199,20 +1280,14 @@ function handleShot(scene, x, y, startX, startY, isHit) {
 
                     // Check for victory after updating UI
                     checkVictory(scene, ships);
+
+                    // Check for loss after hit
+                    checkPlayerLoss(scene, placedShips);
                 }
             }
         }
-
-        // Add explosion sprite
-        const explosion = scene.add.sprite(
-            startX + (x * GRID_SIZE) + GRID_SIZE/2,
-            startY + (y * GRID_SIZE) + GRID_SIZE/2,
-            'explosion'
-        );
-        explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
-        explosion.setData('shotMarker', true);
     } else {
-        // Missed shot code remains the same
+        // Missed shot code
         const missedShot = scene.add.sprite(
             startX + (x * GRID_SIZE) + GRID_SIZE/2,
             startY + (y * GRID_SIZE) + GRID_SIZE/2,
@@ -1220,10 +1295,13 @@ function handleShot(scene, x, y, startX, startY, isHit) {
         );
         missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
         missedShot.setData('shotMarker', true);
+
+        // After player misses, enemy gets a turn
+        processEnemyShot(scene, startY, playerGridX);
     }
 }
 
-// Add new function to handle ship placement
+// Update placeShipOnGrid to add hits tracking
 function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
     const isHorizontal = ship.rotation % 180 === 0;
     const x = ship.tiles[0].x;
@@ -1242,7 +1320,8 @@ function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
         sprite: shipSprite,
         tiles: ship.tiles,
         size: ship.size,
-        rotation: ship.rotation
+        rotation: ship.rotation,
+        hits: new Set() // Add hits tracking
     };
 }
 
@@ -1308,6 +1387,77 @@ function showVictoryScreen(scene) {
             // Remove victory screen elements
             overlay.destroy();
             victoryText.destroy();
+            scoreText.destroy();
+            restartButton.destroy();
+            
+            // Restart game
+            handleRestartClick(scene, startY, gridStartX, gridStartY);
+        }
+    );
+}
+
+// Update checkPlayerLoss to use hits tracking
+function checkPlayerLoss(scene, placedShips) {
+    const allPlayerShipsDestroyed = placedShips.every(ship => 
+        ship.tiles.every(tile => ship.hits.has(`${tile.x},${tile.y}`))
+    );
+
+    if (allPlayerShipsDestroyed) {
+        showLossScreen(scene);
+    }
+}
+
+// Add function to show loss screen
+function showLossScreen(scene) {
+    // Increment computer win counter
+    computerWins++;
+
+    // Create semi-transparent background
+    const overlay = scene.add.rectangle(
+        0, 0, config.width, config.height,
+        0x000000, 0.7
+    );
+    overlay.setOrigin(0);
+
+    // Add loss text
+    const lossText = scene.add.text(
+        config.width/2, 
+        config.height/3,
+        'Game Over - Computer Wins!',
+        {
+            fontSize: '48px',
+            fill: '#ff0000',
+            fontStyle: 'bold'
+        }
+    ).setOrigin(0.5);
+
+    // Add score text
+    const scoreText = scene.add.text(
+        config.width/2,
+        config.height/2,
+        `Player Wins: ${playerWins}\nComputer Wins: ${computerWins}`,
+        {
+            fontSize: '32px',
+            fill: '#fff',
+            align: 'center'
+        }
+    ).setOrigin(0.5);
+
+    // Add restart button
+    const buttonWidth = 200;
+    const buttonHeight = 50;
+    const restartButton = createButton(
+        scene,
+        'Try Again',
+        config.width/2 - buttonWidth/2,
+        config.height * 2/3,
+        buttonWidth,
+        buttonHeight,
+        0xff3333,
+        () => {
+            // Remove loss screen elements
+            overlay.destroy();
+            lossText.destroy();
             scoreText.destroy();
             restartButton.destroy();
             
