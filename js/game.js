@@ -38,6 +38,8 @@ const RECT_PADDING = 5;
 let enemyPlacedShips = []; // Array to track enemy ships' positions
 let playerWins = 0;
 let computerWins = 0;
+let playerShipsDestroyed = 0;
+let enemyShipsDestroyed = 0;
 
 // Move createButton to global scope (add after other global variables)
 function createButton(scene, text, x, y, width, height, color, callback, startDisabled = false) {
@@ -937,6 +939,10 @@ function handleStartClick(scene, startY, gridStartX, gridStartY, buttonY, button
 }
 
 function handleRestartClick(scene, startY, gridStartX, gridStartY) {
+    // Reset destruction counters
+    playerShipsDestroyed = 0;
+    enemyShipsDestroyed = 0;
+    
     // First remove all graphics and shot markers
     scene.children.list
         .filter(child => 
@@ -1226,10 +1232,24 @@ function processEnemyShot(scene, startY, gridStartX) {
 
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
-            }
+                playerShipsDestroyed++; // Increment counter
+                const shipType = ships.find(s => s.size === hitShip.size);
+                if (shipType) {
+                    shipType.destroyed++;
+                    
+                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
+                    const enemyGridX = startX;
+                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
+                    
+                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
 
-            // Check for loss after hit
-            checkPlayerLoss(scene, placedShips);
+                    // Check for victory after updating UI
+                    checkVictory(scene, ships);
+
+                    // Check for loss after hit
+                    checkPlayerLoss(scene, placedShips);
+                }
+            }
         } else {
             // Miss - Add missed shot sprite
             const missedShot = scene.add.sprite(
@@ -1268,6 +1288,7 @@ function handleShot(scene, x, y, startX, startY, isHit, playerGridX) {
 
             if (isDestroyed) {
                 hitShip.sprite.setTint(0x666666);
+                enemyShipsDestroyed++; // Increment counter
                 const shipType = ships.find(s => s.size === hitShip.size);
                 if (shipType) {
                     shipType.destroyed++;
@@ -1325,14 +1346,23 @@ function placeShipOnGrid(scene, ship, startX, startY, isEnemy = false) {
     };
 }
 
-// Add function to check for victory
+// Update checkVictory to use enemyPlacedShips length
 function checkVictory(scene, ships) {
-    const allShipsDestroyed = ships.every(ship => 
-        ship.used > 0 ? ship.destroyed === ship.used : true
-    );
-
-    if (allShipsDestroyed) {
+    // Use enemyPlacedShips length as total enemy ships
+    const totalEnemyShips = enemyPlacedShips.length;
+    
+    if (enemyShipsDestroyed === totalEnemyShips) {
         showVictoryScreen(scene);
+    }
+}
+
+// Update checkPlayerLoss to use placedShips length (already correct)
+function checkPlayerLoss(scene, placedShips) {
+    // Count total player ships
+    const totalPlayerShips = placedShips.length;
+    
+    if (playerShipsDestroyed === totalPlayerShips) {
+        showLossScreen(scene);
     }
 }
 
@@ -1394,17 +1424,6 @@ function showVictoryScreen(scene) {
             handleRestartClick(scene, startY, gridStartX, gridStartY);
         }
     );
-}
-
-// Update checkPlayerLoss to use hits tracking
-function checkPlayerLoss(scene, placedShips) {
-    const allPlayerShipsDestroyed = placedShips.every(ship => 
-        ship.tiles.every(tile => ship.hits.has(`${tile.x},${tile.y}`))
-    );
-
-    if (allPlayerShipsDestroyed) {
-        showLossScreen(scene);
-    }
 }
 
 // Add function to show loss screen
