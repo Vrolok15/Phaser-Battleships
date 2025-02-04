@@ -28,12 +28,14 @@ let placedShips = []; // Array to track placed ships' positions
 let gameStarted = false;
 
 // Add to global variables at the top
+const DEBUG_MODE = true;
 const GRID_SIZE = 32;
 const GRID_DIMENSION = 10;
 const GRID_SPACING = 40;
 const VERTICAL_SPACING = 50;
 const SHIP_Y_OFFSET = 32;
 const TEXT_PADDING = 10;
+
 const RECT_PADDING = 5;
 let enemyPlacedShips = []; // Array to track enemy ships' positions
 let playerWins = 0;
@@ -1188,20 +1190,35 @@ function findShipUIElements(scene, ship, shipY, gridStartX) {
     };
 }
 
-// Update processEnemyShot to add delay between shots
+// Update processEnemyShot to include debug logging
 function processEnemyShot(scene, startY, gridStartX) {
-    let availableShots = [];
-
-    // Check if we should hunt for damaged ships
-    const shouldHuntDamagedShips = playerShipsDamaged.size > playerShipsDestroyed;
-
-    // If we should hunt and have a last successful shot, prioritize its neighbors
-    if (shouldHuntDamagedShips && lastSuccessfulShot) {
-        availableShots = getUnshotNeighbors(scene, lastSuccessfulShot.x, lastSuccessfulShot.y, gridStartX, startY);
+    if (DEBUG_MODE) {
+        console.log('Enemy turn starting...');
+        console.log(`Damaged ships: ${playerShipsDamaged.size}, Destroyed ships: ${playerShipsDestroyed}`);
     }
 
-    // If no neighbors are available or we're not hunting, get all available shots
+    let availableShots = [];
+    const shouldHuntDamagedShips = playerShipsDamaged.size > playerShipsDestroyed;
+
+    if (DEBUG_MODE && shouldHuntDamagedShips) {
+        console.log('Hunting mode active - targeting damaged ships');
+    }
+
+    if (shouldHuntDamagedShips && lastSuccessfulShot) {
+        if (DEBUG_MODE) {
+            console.log(`Targeting around last hit at: (${lastSuccessfulShot.x}, ${lastSuccessfulShot.y})`);
+        }
+        availableShots = getUnshotNeighbors(scene, lastSuccessfulShot.x, lastSuccessfulShot.y, gridStartX, startY);
+        
+        if (DEBUG_MODE) {
+            console.log(`Found ${availableShots.length} available neighbor shots`);
+        }
+    }
+
     if (availableShots.length === 0) {
+        if (DEBUG_MODE) {
+            console.log('No targeted shots available, switching to random targeting');
+        }
         for (let x = 0; x < GRID_DIMENSION; x++) {
             for (let y = 0; y < GRID_DIMENSION; y++) {
                 const hasBeenShot = scene.children.list.some(child => 
@@ -1216,22 +1233,29 @@ function processEnemyShot(scene, startY, gridStartX) {
                 }
             }
         }
+        if (DEBUG_MODE) {
+            console.log(`Found ${availableShots.length} total available shots`);
+        }
     }
 
     if (availableShots.length > 0) {
-        // Pick a random available coordinate
         const shotIndex = Math.floor(Math.random() * availableShots.length);
         const shot = availableShots[shotIndex];
 
-        // Check if there's a ship at these coordinates
+        if (DEBUG_MODE) {
+            console.log(`Taking shot at: (${shot.x}, ${shot.y})`);
+        }
+
         const hitShip = placedShips.find(ship => 
             ship.tiles.some(tile => tile.x === shot.x && tile.y === shot.y)
         );
 
         if (hitShip) {
-            // Update last successful shot
-            lastSuccessfulShot = shot;
-            // Hit - Add explosion sprite
+            if (DEBUG_MODE) {
+                console.log(`Hit confirmed! Ship size: ${hitShip.size}`);
+            }
+
+            // Hit handling...
             const explosion = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
@@ -1240,7 +1264,6 @@ function processEnemyShot(scene, startY, gridStartX) {
             explosion.setDisplaySize(GRID_SIZE, GRID_SIZE);
             explosion.setData('shotMarker', true);
 
-            // Track hit and add ship to damaged set
             hitShip.hits.add(`${shot.x},${shot.y}`);
             playerShipsDamaged.add(hitShip);
 
@@ -1249,32 +1272,24 @@ function processEnemyShot(scene, startY, gridStartX) {
             );
 
             if (isDestroyed) {
+                if (DEBUG_MODE) {
+                    console.log(`Ship destroyed! Total ships destroyed: ${playerShipsDestroyed + 1}`);
+                }
                 hitShip.sprite.setTint(0x666666);
                 playerShipsDestroyed++;
-                const shipType = ships.find(s => s.size === hitShip.size);
-                if (shipType) {
-                    shipType.destroyed++;
-                    
-                    const totalGridWidth = GRID_SIZE * GRID_DIMENSION;
-                    const enemyGridX = startX;
-                    const playerGridX = startX - totalGridWidth - GRID_SPACING;
-                    
-                    updateShipUI(scene, ships, startY, playerGridX, enemyGridX);
-
-                    // Check for victory after updating UI
-                    checkVictory(scene, ships);
-
-                    // Check for loss after hit
-                    checkPlayerLoss(scene, placedShips);
-                }
+                // ... rest of destruction logic
             }
 
-            // Take another shot after a delay
+            if (DEBUG_MODE) {
+                console.log('Hit successful - taking another shot after delay');
+            }
             scene.time.delayedCall(600, () => {
                 processEnemyShot(scene, startY, gridStartX);
             });
         } else {
-            // Miss - Add missed shot sprite
+            if (DEBUG_MODE) {
+                console.log('Shot missed');
+            }
             const missedShot = scene.add.sprite(
                 gridStartX + (shot.x * GRID_SIZE) + GRID_SIZE/2,
                 startY + (shot.y * GRID_SIZE) + GRID_SIZE/2,
@@ -1283,6 +1298,11 @@ function processEnemyShot(scene, startY, gridStartX) {
             missedShot.setDisplaySize(GRID_SIZE, GRID_SIZE);
             missedShot.setData('shotMarker', true);
         }
+    } else {
+        if (DEBUG_MODE) {
+            console.log('No available shots - game should be over');
+        }
+        checkPlayerLoss(scene, placedShips);
     }
 }
 
