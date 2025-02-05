@@ -1789,6 +1789,11 @@ function showLossScreen(scene) {
     lastSuccessfulShot = null;
     computerWins++;
 
+    // Reveal all enemy ships by setting alpha to 1, keeping existing tints for hit ships
+    enemyPlacedShips.forEach(ship => {
+        ship.sprite.setAlpha(1);
+    });
+
     // Create semi-transparent background with high depth
     const overlay = scene.add.rectangle(
         0, 0, config.width, config.height,
