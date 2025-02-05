@@ -1,6 +1,6 @@
 # Naval Battle Game
 
-A simple naval battle game built with Phaser 3.
+A simple naval battle game built with Phaser 3. Try it here - https://vrolok15.github.io/Phaser-Battleships/
 
 ## Controls
 Place ships by clicking and dragging from the bottom of the screen, you can rotate them with mouse wheel. 
